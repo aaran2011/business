@@ -153,6 +153,12 @@ How it works, and the limits:
 - Devices talk to each other directly over WebRTC (`peerjs`), brokered by
   PeerJS's free public signalling server. There is no backend, no account and
   nothing to pay for — it still deploys as a static site.
+- **STUN is not enough on its own.** Behind symmetric NAT — most mobile
+  carriers, plenty of guest and office Wi-Fi — a direct link never forms and
+  the join just hangs. `ICE_SERVERS` in `src/net/protocol.ts` therefore lists
+  free TURN relays (Open Relay, including TCP/443 which looks like ordinary
+  HTTPS) alongside STUN. This is the difference between "one phone joined and
+  the second never did" and everybody getting in.
 - **Both devices have to be able to load the page.** `localhost:4600` only
   works on this Mac; a phone needs either the Mac's LAN address
   (`http://<ip>:4600`, printed by `npm run dev` as the Network line) or the

@@ -57,7 +57,23 @@ export function JoinPanel({ session, onBack }: { session: Session; onBack: () =>
                   if (e.key === 'Enter' && codeReady) session.joinGame(code)
                 }}
               />
-              {session.error && <div className="join-error">{session.error}</div>}
+              {session.status === 'connecting' && (
+                <div className="host-status is-connecting">
+                  Connecting to the game… this can take a few seconds.
+                </div>
+              )}
+              {session.error && (
+                <>
+                  <div className="join-error">{session.error}</div>
+                  <button
+                    className="btn"
+                    style={{ width: '100%', justifyContent: 'center', marginTop: 10 }}
+                    onClick={() => session.retryJoin()}
+                  >
+                    Try again
+                  </button>
+                </>
+              )}
               <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
                 <button className="btn" onClick={onBack}>
                   Back

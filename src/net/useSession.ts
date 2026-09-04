@@ -2,7 +2,13 @@ import Peer, { type DataConnection } from 'peerjs'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createInitialState, gameReducer } from '../engine/game'
 import type { GameAction, GameState } from '../engine/types'
-import { guestMayDo, peerIdForCode, redactFor, type NetMessage } from './protocol'
+import {
+  guestMayDo,
+  PEER_OPTIONS,
+  peerIdForCode,
+  redactFor,
+  type NetMessage,
+} from './protocol'
 
 /**
  * Holds the game and, when more than one device is playing, keeps them in step.
@@ -42,6 +48,8 @@ export interface Session {
   addMe: (name: string, colourId: string) => void
   /** Guest: change my own name or colour. */
   editMe: (patch: { name?: string; colourId?: string }) => void
+  /** Guest: try the last code again after a failure. */
+  retryJoin: () => void
   leave: () => void
 }
 
@@ -61,6 +69,8 @@ export function useSession(): Session {
   )
   /** Guest: the single channel back to the host. */
   const hostConnRef = useRef<DataConnection | null>(null)
+  /** The code last tried, so "Try again" needs no retyping. */
+  const lastCodeRef = useRef<string | null>(null)
   /** Always the newest game, for use inside callbacks that were made earlier. */
   const stateRef = useRef(state)
   stateRef.current = state
@@ -100,7 +110,7 @@ export function useSession(): Session {
     setStatus('connecting')
     setError(null)
 
-    const peer = new Peer(peerIdForCode(stateRef.current.gameCode))
+    const peer = new Peer(peerIdForCode(stateRef.current.gameCode), PEER_OPTIONS)
     peerRef.current = peer
 
     peer.on('open', () => {
@@ -201,6 +211,7 @@ export function useSession(): Session {
   // --------------------------------------------------------------- guest ---
 
   const joinGame = useCallback((code: string) => {
+    lastCodeRef.current = code
     if (peerRef.current) {
       peerRef.current.destroy()
       peerRef.current = null
@@ -209,19 +220,25 @@ export function useSession(): Session {
     setError(null)
     setRole('guest')
 
-    const peer = new Peer()
+    // A guest takes whatever id the broker hands out.
+    const peer = new Peer(PEER_OPTIONS)
     peerRef.current = peer
 
     peer.on('open', () => {
       const conn = peer.connect(peerIdForCode(code), { reliable: true })
       hostConnRef.current = conn
 
+      // The host answered but the direct channel never opened — that is a
+      // network problem, not a wrong code, and saying so saves a lot of
+      // pointless re-typing.
       const timeout = window.setTimeout(() => {
         if (!conn.open) {
-          setError('No game found with that code. Check it and try again.')
+          setError(
+            'Found the game, but could not open a connection. This is usually a network that blocks direct links — try both phones on the same Wi-Fi.',
+          )
           setStatus('error')
         }
-      }, 12000)
+      }, 20000)
 
       conn.on('open', () => {
         window.clearTimeout(timeout)
@@ -254,12 +271,17 @@ export function useSession(): Session {
       const gone = String(err).includes('peer-unavailable')
       setError(
         gone
-          ? 'No game found with that code. Check it and try again.'
+          ? 'No game with that code. Check the code, and that the host still has the game open.'
           : `Could not join: ${err.message ?? err}`,
       )
       setStatus('error')
     })
   }, [])
+
+  /** Try the same code again after a failure, without retyping it. */
+  const retryJoin = useCallback(() => {
+    if (lastCodeRef.current) joinGame(lastCodeRef.current)
+  }, [joinGame])
 
   const addMe = useCallback((name: string, colourId: string) => {
     hostConnRef.current?.send({ t: 'addMe', name, colourId } as NetMessage)
@@ -324,6 +346,7 @@ export function useSession(): Session {
     joinGame,
     addMe,
     editMe,
+    retryJoin,
     leave,
     controlsPlayer,
   }

@@ -180,9 +180,16 @@ export function SetupScreen({
 
         <div className="panel-body setup-actions">
           {isGuest ? (
-            <div className="host-status is-ready" style={{ marginTop: 0, width: '100%' }}>
-              You're in as <strong>{lobby.find((e) => session.controlsPlayer(e.id))?.name || 'Player'}</strong>.
-              Change your name or colour above. The host starts the game.
+            <div className="waiting-banner">
+              <span className="waiting-dot" aria-hidden="true" />
+              <div>
+                <strong>Wait for the host to start.</strong>
+                <div className="waiting-sub">
+                  You're in as{' '}
+                  {lobby.find((e) => session.controlsPlayer(e.id))?.name || 'Player'}. You can still
+                  change your name or colour above.
+                </div>
+              </div>
             </div>
           ) : (
             <>

@@ -11,6 +11,43 @@
 import { leaderboard } from '../engine/queries'
 import type { GameAction, GameState } from '../engine/types'
 
+/**
+ * How the two browsers find a path to each other.
+ *
+ * STUN alone is enough when both devices can see each other's public address,
+ * which is the usual case on one home Wi-Fi. It is NOT enough behind symmetric
+ * NAT — most mobile carriers, and plenty of guest and office networks — where
+ * the handshake simply hangs. A TURN server relays the traffic in that case,
+ * which is the difference between "one phone joined and the other never did"
+ * and everybody getting in.
+ *
+ * Open Relay's TURN is free and needs no account. Swap in your own here if it
+ * ever goes away; nothing else in the app has to change.
+ */
+export const ICE_SERVERS: RTCIceServer[] = [
+  { urls: 'stun:stun.l.google.com:19302' },
+  { urls: 'stun:openrelay.metered.ca:80' },
+  {
+    urls: 'turn:openrelay.metered.ca:80',
+    username: 'openrelayproject',
+    credential: 'openrelayproject',
+  },
+  {
+    urls: 'turn:openrelay.metered.ca:443',
+    username: 'openrelayproject',
+    credential: 'openrelayproject',
+  },
+  {
+    // TCP/443 looks like ordinary HTTPS, so it survives the strictest firewalls.
+    urls: 'turn:openrelay.metered.ca:443?transport=tcp',
+    username: 'openrelayproject',
+    credential: 'openrelayproject',
+  },
+]
+
+/** Shared by both ends, so host and guest agree on how to connect. */
+export const PEER_OPTIONS = { config: { iceServers: ICE_SERVERS } }
+
 /** Namespaced so the short game code cannot collide with another app's peer. */
 export const PEER_PREFIX = 'intlbusiness-'
 
