@@ -43,6 +43,7 @@ export function makeGameCode(): string {
 export function createInitialState(settings: GameSettings = DEFAULT_SETTINGS): GameState {
   return {
     gameCode: makeGameCode(),
+    lobby: [],
     phase: 'setup',
     settings,
     players: [],
@@ -92,9 +93,16 @@ export function gameReducer(state: GameState, action: GameAction): GameState {
 function apply(state: GameState, action: GameAction): void {
   switch (action.type) {
     case 'START_GAME':
-      return startGame(state, action.players)
+      return startGame(state)
+    case 'ADD_LOBBY_PLAYER':
+      return addLobbyPlayer(state, action.id, action.name, action.colourId, action.isHost ?? false)
+    case 'UPDATE_LOBBY_PLAYER':
+      return updateLobbyPlayer(state, action.id, action.name, action.colourId)
+    case 'REMOVE_LOBBY_PLAYER':
+      state.lobby = state.lobby.filter((e) => e.id !== action.id)
+      return
     case 'ROLL_FOR_ORDER':
-      return rollForOrder(state)
+      return rollForOrder(state, action.playerId)
     case 'CONFIRM_ORDER':
       return confirmOrder(state)
     case 'ROLL_DICE':
@@ -266,14 +274,68 @@ function removePlayer(state: GameState, playerId: string): void {
 // SETUP  &  TURN ORDER
 // ---------------------------------------------------------------------------
 
-function startGame(state: GameState, setup: { name: string; colourId: string }[]): void {
-  const { minPlayers, maxPlayers, startingCash } = state.settings
-  if (setup.length < minPlayers || setup.length > maxPlayers) return
+/**
+ * The lobby fills up before the game starts. On a multi-device game each
+ * phone adds its own seat over the network, so this has to be shared state.
+ */
+function addLobbyPlayer(
+  state: GameState,
+  id: string,
+  name: string,
+  colourId: string,
+  isHost: boolean,
+): void {
+  if (state.phase !== 'setup') return
+  if (state.lobby.length >= state.settings.maxPlayers) return
+  if (state.lobby.some((e) => e.id === id)) return
 
-  state.players = setup.map((entry, seat) => {
+  state.lobby.push({
+    id,
+    name: name.trim() || `Player ${state.lobby.length + 1}`,
+    colourId: freeColourId(state, colourId),
+    isHost,
+  })
+}
+
+function updateLobbyPlayer(
+  state: GameState,
+  id: string,
+  name?: string,
+  colourId?: string,
+): void {
+  if (state.phase !== 'setup') return
+  const entry = state.lobby.find((e) => e.id === id)
+  if (!entry) return
+  if (name !== undefined) entry.name = name
+  if (colourId !== undefined) entry.colourId = freeColourId(state, colourId, id)
+}
+
+/** Two players may not share a colour, so fall back to the next free one. */
+function freeColourId(state: GameState, wanted: string, exceptId?: string): string {
+  const taken = new Set(
+    state.lobby.filter((e) => e.id !== exceptId).map((e) => e.colourId),
+  )
+  if (!taken.has(wanted)) return wanted
+  return PLAYER_COLOURS.find((c) => !taken.has(c.id))?.id ?? wanted
+}
+
+/** True once there are enough players and every one of them has a name. */
+export function lobbyReady(state: GameState): boolean {
+  return (
+    state.lobby.length >= state.settings.minPlayers &&
+    state.lobby.length <= state.settings.maxPlayers
+  )
+}
+
+function startGame(state: GameState): void {
+  const { minPlayers, maxPlayers, startingCash } = state.settings
+  if (state.lobby.length < minPlayers || state.lobby.length > maxPlayers) return
+
+  state.players = state.lobby.map((entry, seat) => {
     const colour = PLAYER_COLOURS.find((c) => c.id === entry.colourId) ?? PLAYER_COLOURS[seat]
     return {
-      id: `p${seat + 1}`,
+      // The lobby id carries through, so a phone keeps the seat it took.
+      id: entry.id,
       name: entry.name.trim() || `Player ${seat + 1}`,
       colourId: colour.id,
       colourHex: colour.hex,
@@ -302,11 +364,14 @@ function startGame(state: GameState, setup: { name: string; colourId: string }[]
   )
 }
 
-/** Roll for the next contender who has not rolled yet this round. */
-function rollForOrder(state: GameState): void {
+/** One named player takes their own opening roll, from their own device. */
+function rollForOrder(state: GameState, playerId: string): void {
   if (state.phase !== 'orderRoll') return
   const pending = state.orderRolls.find(
-    (entry) => entry.dice === null && state.orderContenders.includes(entry.playerId),
+    (entry) =>
+      entry.playerId === playerId &&
+      entry.dice === null &&
+      state.orderContenders.includes(entry.playerId),
   )
   if (!pending) return
 

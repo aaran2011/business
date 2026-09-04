@@ -28,10 +28,14 @@ export const CODE_LENGTH = 6
 export type NetMessage =
   /** guest -> host, first thing after the channel opens */
   | { t: 'hello' }
-  /** guest -> host, taking over one of the seats the host set up */
-  | { t: 'claim'; playerId: string }
+  /** guest -> host, adding themselves to the lobby with their own name+colour */
+  | { t: 'addMe'; name: string; colourId: string }
+  /** guest -> host, changing their own name or colour in the lobby */
+  | { t: 'editMe'; name?: string; colourId?: string }
   /** host -> guest, confirming which seat this device now controls */
   | { t: 'claimed'; playerId: string }
+  /** host -> guest, the lobby is full */
+  | { t: 'full' }
   /** host -> guest, the whole game as that guest is allowed to see it */
   | { t: 'state'; state: GameState; seats: string[] }
   /** guest -> host, "my player would like to do this" */
@@ -57,5 +61,52 @@ export function redactFor(state: GameState, viewerPlayerId: string | null): Game
     ),
     // Ranked here, on the host, while the real balances are still available.
     leaderboardOrder: leaderboard(state).map((row) => row.player.id),
+  }
+}
+
+/**
+ * What a joined phone is allowed to ask the host to do.
+ *
+ * The host is the authority, so this is the one place that decides. A phone
+ * may only ever touch its own seat, and only the device running the game may
+ * start it, end it, remove people or change the rules.
+ */
+export function guestMayDo(
+  action: GameAction,
+  guestPlayerId: string | null,
+  state: GameState,
+): boolean {
+  if (!guestPlayerId) return false
+
+  switch (action.type) {
+    // Your own seat in the lobby is yours to edit or give up.
+    case 'UPDATE_LOBBY_PLAYER':
+    case 'REMOVE_LOBBY_PLAYER':
+      return state.phase === 'setup' && action.id === guestPlayerId
+
+    // Everyone takes their own opening roll, and only their own.
+    case 'ROLL_FOR_ORDER':
+      return state.phase === 'orderRoll' && action.playerId === guestPlayerId
+
+    // Host-only: running the game itself.
+    case 'START_GAME':
+    case 'CONFIRM_ORDER':
+    case 'ADD_LOBBY_PLAYER':
+    case 'END_GAME':
+    case 'REMOVE_PLAYER':
+    case 'SET_TIMER':
+    case 'TIME_UP':
+    case 'REQUEST_PAUSE':
+    case 'CANCEL_PAUSE':
+    case 'RESUME':
+    case 'RESUME_WITHOUT_TIMER':
+    case 'UPDATE_SETTINGS':
+    case 'RESET':
+    case 'NET_SYNC':
+      return false
+
+    // Everything else is a move in the game: only on your own turn.
+    default:
+      return state.phase === 'playing' && state.turnOrder[state.currentIndex] === guestPlayerId
   }
 }

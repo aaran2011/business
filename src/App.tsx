@@ -171,7 +171,15 @@ export default function App() {
     )
   }
   if (state.phase === 'orderRoll') {
-    return <OrderRollScreen state={state} dispatch={act} rolling={rolling} rollId={rollId} />
+    return (
+      <OrderRollScreen
+        state={state}
+        dispatch={act}
+        rolling={rolling}
+        rollId={rollId}
+        controlsPlayer={session.controlsPlayer}
+      />
+    )
   }
   if (state.phase === 'timeUp' || state.phase === 'gameOver' || state.phase === 'ended') {
     return <ResultsScreen state={state} dispatch={act} />
@@ -181,12 +189,8 @@ export default function App() {
     <PlayingView
       state={state}
       dispatch={act}
-      canAct={!isGuest || session.myPlayerId === state.turnOrder[state.currentIndex]}
-      seatName={
-        isGuest
-          ? (state.players.find((p) => p.id === session.myPlayerId)?.name ?? null)
-          : null
-      }
+      canAct={session.controlsPlayer(state.turnOrder[state.currentIndex])}
+      seatName={state.players.find((p) => p.id === session.myPlayerId)?.name ?? null}
       rolling={rolling}
       rollId={rollId}
       displayPositions={displayPositions}

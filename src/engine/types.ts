@@ -29,6 +29,20 @@ export interface Player {
   seat: number
 }
 
+/**
+ * A seat in the lobby, before the game starts. Guests add their own entry over
+ * the network, so this has to live in shared state rather than in a component.
+ * The id carries through to `Player.id`, so a phone keeps its seat when the
+ * game begins.
+ */
+export interface LobbyEntry {
+  id: string
+  name: string
+  colourId: string
+  /** True for the seat the host device itself plays. */
+  isHost: boolean
+}
+
 /** Ownership record for one country or special asset. */
 export interface Holding {
   ownerId: string | null
@@ -143,6 +157,8 @@ export interface GameTimer {
 export interface GameState {
   /** Short shareable code identifying this game session. */
   gameCode: string
+  /** Who is in the game, while `phase` is still 'setup'. */
+  lobby: LobbyEntry[]
   /**
    * Set only on a guest device: the host's ranking, since a guest cannot
    * compute it without everyone's cash.
@@ -196,8 +212,13 @@ export interface GameState {
 }
 
 export type GameAction =
-  | { type: 'START_GAME'; players: { name: string; colourId: string }[] }
-  | { type: 'ROLL_FOR_ORDER' }
+  | { type: 'START_GAME' }
+  /** Someone takes a seat in the lobby. The id is chosen by the host. */
+  | { type: 'ADD_LOBBY_PLAYER'; id: string; name: string; colourId: string; isHost?: boolean }
+  | { type: 'UPDATE_LOBBY_PLAYER'; id: string; name?: string; colourId?: string }
+  | { type: 'REMOVE_LOBBY_PLAYER'; id: string }
+  /** Each player rolls their own opening die, from their own device. */
+  | { type: 'ROLL_FOR_ORDER'; playerId: string }
   | { type: 'CONFIRM_ORDER' }
   | { type: 'ROLL_DICE' }
   | { type: 'COMPLETE_MOVE' }

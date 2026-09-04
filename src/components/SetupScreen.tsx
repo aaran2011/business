@@ -1,15 +1,13 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { PLAYER_COLOURS } from '../data/playerColours'
-import { DEFAULT_SETTINGS } from '../data/settings'
 import { money } from '../engine/log'
 import type { Session } from '../net/useSession'
 
-interface Entry {
-  name: string
-  colourId: string
-}
-
-/** 2–6 players, each with a name and a token colour. */
+/**
+ * The lobby. Everyone in the game appears here, whether they were added on
+ * this device or joined from their own phone with the code — the roster lives
+ * in shared state, so all screens show the same thing as it fills up.
+ */
 export function SetupScreen({
   session,
   onJoinInstead,
@@ -17,34 +15,40 @@ export function SetupScreen({
   session: Session
   onJoinInstead: () => void
 }) {
-  const gameCode = session.state.gameCode
-  const dispatch = session.dispatch
+  const { state, dispatch } = session
+  const { minPlayers, maxPlayers, startingCash } = state.settings
   const [copied, setCopied] = useState(false)
   const [showCode, setShowCode] = useState(false)
-  const { minPlayers, maxPlayers, startingCash } = DEFAULT_SETTINGS
 
-  const [entries, setEntries] = useState<Entry[]>([
-    { name: '', colourId: PLAYER_COLOURS[0].id },
-    { name: '', colourId: PLAYER_COLOURS[1].id },
-  ])
+  const lobby = state.lobby
+  const full = lobby.length >= maxPlayers
+  const ready = lobby.length >= minPlayers
+  /** Only the device running the game sets it up and starts it. */
+  const isGuest = session.role === 'guest'
 
-  const setEntry = (index: number, patch: Partial<Entry>) =>
-    setEntries((prev) => prev.map((e, i) => (i === index ? { ...e, ...patch } : e)))
-
-  const addPlayer = () => {
-    const taken = new Set(entries.map((e) => e.colourId))
-    const free = PLAYER_COLOURS.find((c) => !taken.has(c.id)) ?? PLAYER_COLOURS[0]
-    setEntries((prev) => [...prev, { name: '', colourId: free.id }])
-  }
-
-  const start = () =>
+  // The host device always holds at least one seat: whoever set the game up.
+  const seeded = useRef(false)
+  useEffect(() => {
+    if (seeded.current || lobby.length > 0 || isGuest) return
+    seeded.current = true
     dispatch({
-      type: 'START_GAME',
-      players: entries.map((e, i) => ({
-        name: e.name.trim() || `Player ${i + 1}`,
-        colourId: e.colourId,
-      })),
+      type: 'ADD_LOBBY_PLAYER',
+      id: 'host',
+      name: '',
+      colourId: PLAYER_COLOURS[0].id,
+      isHost: true,
     })
+  }, [dispatch, lobby.length, isGuest])
+
+  const addLocalPlayer = () => {
+    if (full) return
+    dispatch({
+      type: 'ADD_LOBBY_PLAYER',
+      id: `local-${Date.now().toString(36)}`,
+      name: '',
+      colourId: PLAYER_COLOURS[lobby.length % PLAYER_COLOURS.length].id,
+    })
+  }
 
   return (
     <div className="setup-shell">
@@ -59,12 +63,12 @@ export function SetupScreen({
             </div>
             <div className="modal-body">
               <div className="code-box">
-                <span className="code-label">Put this code in on the other phone</span>
-                <span className="code-value">{gameCode}</span>
+                <span className="code-label">Put this code in on the other phones</span>
+                <span className="code-value">{state.gameCode}</span>
                 <button
                   className="btn btn-sm"
                   onClick={() => {
-                    navigator.clipboard?.writeText(gameCode).then(
+                    navigator.clipboard?.writeText(state.gameCode).then(
                       () => {
                         setCopied(true)
                         window.setTimeout(() => setCopied(false), 1600)
@@ -81,16 +85,15 @@ export function SetupScreen({
                 {session.status === 'connecting' && 'Opening the game to other phones…'}
                 {session.status === 'ready' &&
                   (session.guestCount === 0
-                    ? 'Open. Put the code in on another phone to join.'
-                    : `${session.guestCount} phone${session.guestCount === 1 ? '' : 's'} connected.`)}
+                    ? 'Open. Everyone else puts this code in on their own phone.'
+                    : `${session.guestCount} phone${session.guestCount === 1 ? '' : 's'} joined.`)}
                 {session.status === 'error' && (session.error ?? 'Could not open the game.')}
                 {session.status === 'idle' && 'Getting ready…'}
               </div>
 
               <div className="rent-note" style={{ background: 'transparent', padding: '10px 0 0' }}>
-                This phone runs the game, so keep it open. Everyone else puts the code in on their
-                own phone under <strong>Join a game</strong>, picks who they are, and sees only
-                their own money.
+                Keep this phone open — it runs the game. Everyone who joins puts in their own name
+                and colour, and they appear in the list here.
               </div>
             </div>
             <div className="modal-foot">
@@ -105,8 +108,7 @@ export function SetupScreen({
       <div className="setup-hero">
         <h1>Business</h1>
         <p>
-          {minPlayers}–{maxPlayers} players · {money(startingCash)} each · pass the device between
-          turns
+          {minPlayers}–{maxPlayers} players · {money(startingCash)} each
         </p>
       </div>
 
@@ -114,73 +116,102 @@ export function SetupScreen({
         <div className="panel-head">
           <span>Players</span>
           <span>
-            {entries.length} of {maxPlayers}
+            {lobby.length} of {maxPlayers}
           </span>
         </div>
 
-        {entries.map((entry, i) => (
-          <div className="setup-row" key={i}>
-            <span
-              className="player-token"
-              style={{
-                background: PLAYER_COLOURS.find((c) => c.id === entry.colourId)?.hex,
-              }}
-            >
-              {i + 1}
-            </span>
-            <input
-              className="input"
-              placeholder={`Player ${i + 1}`}
-              value={entry.name}
-              maxLength={16}
-              onChange={(e) => setEntry(i, { name: e.target.value })}
-            />
-            <div className="swatch-picker">
-              {PLAYER_COLOURS.map((colour) => {
-                const takenBy = entries.findIndex((e) => e.colourId === colour.id)
-                const disabled = takenBy !== -1 && takenBy !== i
-                return (
-                  <button
-                    key={colour.id}
-                    className={`swatch${entry.colourId === colour.id ? ' is-selected' : ''}`}
-                    style={{ background: colour.hex }}
-                    disabled={disabled}
-                    title={colour.name}
-                    onClick={() => setEntry(i, { colourId: colour.id })}
-                  />
-                )
-              })}
-            </div>
-            {entries.length > minPlayers && (
-              <button
-                className="close-x"
-                onClick={() => setEntries((prev) => prev.filter((_, idx) => idx !== i))}
+        {lobby.map((entry, i) => {
+          const mine = session.controlsPlayer(entry.id)
+          return (
+            <div className="setup-row" key={entry.id}>
+              <span
+                className="player-token"
+                style={{
+                  background: PLAYER_COLOURS.find((c) => c.id === entry.colourId)?.hex,
+                }}
               >
-                ×
-              </button>
-            )}
-          </div>
-        ))}
+                {i + 1}
+              </span>
+              <input
+                className="input"
+                placeholder={`Player ${i + 1}`}
+                value={entry.name}
+                maxLength={16}
+                disabled={!mine}
+                title={mine ? undefined : 'Set on their own phone'}
+                onChange={(e) =>
+                  dispatch({ type: 'UPDATE_LOBBY_PLAYER', id: entry.id, name: e.target.value })
+                }
+              />
+              <div className="swatch-picker">
+                {PLAYER_COLOURS.map((colour) => {
+                  const takenBy = lobby.findIndex((e) => e.colourId === colour.id)
+                  const disabled = !mine || (takenBy !== -1 && lobby[takenBy].id !== entry.id)
+                  return (
+                    <button
+                      key={colour.id}
+                      className={`swatch${entry.colourId === colour.id ? ' is-selected' : ''}`}
+                      style={{ background: colour.hex }}
+                      disabled={disabled}
+                      title={colour.name}
+                      onClick={() =>
+                        dispatch({
+                          type: 'UPDATE_LOBBY_PLAYER',
+                          id: entry.id,
+                          colourId: colour.id,
+                        })
+                      }
+                    />
+                  )
+                })}
+              </div>
+              {!mine && <span className="seat-badge">on their phone</span>}
+              {mine && !entry.isHost && lobby.length > minPlayers && (
+                <button
+                  className="close-x"
+                  onClick={() => dispatch({ type: 'REMOVE_LOBBY_PLAYER', id: entry.id })}
+                >
+                  ×
+                </button>
+              )}
+            </div>
+          )
+        })}
 
-        <div className="panel-body" style={{ display: 'flex', gap: 10, flexWrap: 'wrap' }}>
-          <button className="btn" onClick={addPlayer} disabled={entries.length >= maxPlayers}>
-            Add player
-          </button>
-          <button
-            className="btn"
-            onClick={() => {
-              session.startHosting()
-              setShowCode(true)
-            }}
-          >
-            Get the code
-          </button>
-          <button className="btn" onClick={onJoinInstead}>
-            Put Code — join a game
-          </button>
-          <button className="btn btn-primary" style={{ marginLeft: 'auto' }} onClick={start}>
-            Continue → roll for turn order
-          </button>
+        <div className="panel-body setup-actions">
+          {isGuest ? (
+            <div className="host-status is-ready" style={{ marginTop: 0, width: '100%' }}>
+              You're in as <strong>{lobby.find((e) => session.controlsPlayer(e.id))?.name || 'Player'}</strong>.
+              Change your name or colour above. The host starts the game.
+            </div>
+          ) : (
+            <>
+              <button className="btn" onClick={addLocalPlayer} disabled={full}>
+                Add player on this phone
+              </button>
+              <button
+                className="btn"
+                onClick={() => {
+                  session.startHosting()
+                  setShowCode(true)
+                }}
+              >
+                Get the code
+              </button>
+              <button className="btn" onClick={onJoinInstead}>
+                Put Code — join a game
+              </button>
+              <button
+                className="btn btn-primary"
+                style={{ marginLeft: 'auto' }}
+                disabled={!ready}
+                onClick={() => dispatch({ type: 'START_GAME' })}
+                title={ready ? undefined : `Needs at least ${minPlayers} players`}
+              >
+                Start game
+              </button>
+            </>
+          )}
         </div>
       </div>
     </div>

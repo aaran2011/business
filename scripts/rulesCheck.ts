@@ -43,6 +43,7 @@ import {
   handleUno,
   sendToJail,
 } from '../src/engine/spaces'
+import { guestMayDo, redactFor } from '../src/net/protocol'
 import type { GameState } from '../src/engine/types'
 
 let passed = 0
@@ -62,13 +63,16 @@ function ok(label: string, condition: boolean) {
 /** A playing state with `n` players, no randomness involved. */
 function makeState(n = 4): GameState {
   let state = createInitialState()
-  state = gameReducer(state, {
-    type: 'START_GAME',
-    players: Array.from({ length: n }, (_, i) => ({
+  // Everyone takes a seat in the lobby first, exactly as the screens do.
+  for (let i = 0; i < n; i++) {
+    state = gameReducer(state, {
+      type: 'ADD_LOBBY_PLAYER',
+      id: `p${i + 1}`,
       name: `P${i + 1}`,
       colourId: ['crimson', 'azure', 'emerald', 'amber', 'violet', 'slate'][i],
-    })),
-  })
+    })
+  }
+  state = gameReducer(state, { type: 'START_GAME' })
   // Skip the roll-off deterministically.
   state.orderRolls = state.orderRolls.map((e, i) => ({
     ...e,
@@ -1301,6 +1305,152 @@ console.log('— End game, remove player, transfers, game code —')
   ok('no easily confused characters', [...codes].every((c) => !/[IO01]/.test(c)))
   ok('codes vary', codes.size > 380)
   ok('a fresh game carries one', /^[A-Z2-9]{6}$/.test(createInitialState().gameCode))
+}
+
+// ===========================================================================
+console.log('— Lobby: everyone adds themselves —')
+// ===========================================================================
+
+{
+  let state = createInitialState()
+  check('a fresh game has an empty lobby', state.lobby, [])
+
+  state = gameReducer(state, { type: 'ADD_LOBBY_PLAYER', id: 'host', name: 'Aaran', colourId: 'crimson', isHost: true })
+  state = gameReducer(state, { type: 'ADD_LOBBY_PLAYER', id: 'g1', name: 'Rohan', colourId: 'azure' })
+  check('two seats taken', state.lobby.map((e) => e.name), ['Aaran', 'Rohan'])
+  check('the host seat is flagged', state.lobby[0].isHost, true)
+
+  // Everyone edits only their own row; ids carry through to the players.
+  state = gameReducer(state, { type: 'UPDATE_LOBBY_PLAYER', id: 'g1', name: 'Priya' })
+  check('a guest can rename themselves', state.lobby[1].name, 'Priya')
+
+  state = gameReducer(state, { type: 'START_GAME' })
+  check('the game starts from the lobby', state.phase, 'orderRoll')
+  check('names carry through', state.players.map((p) => p.name), ['Aaran', 'Priya'])
+  check('and so do the ids, so a phone keeps its seat', state.players.map((p) => p.id), ['host', 'g1'])
+}
+{
+  // Two players may never share a colour.
+  let state = createInitialState()
+  state = gameReducer(state, { type: 'ADD_LOBBY_PLAYER', id: 'a', name: 'A', colourId: 'crimson' })
+  state = gameReducer(state, { type: 'ADD_LOBBY_PLAYER', id: 'b', name: 'B', colourId: 'crimson' })
+  ok('a clashing colour is moved to a free one', state.lobby[1].colourId !== 'crimson')
+
+  state = gameReducer(state, { type: 'UPDATE_LOBBY_PLAYER', id: 'b', colourId: 'crimson' })
+  ok('and cannot be taken by editing either', state.lobby[1].colourId !== 'crimson')
+
+  state = gameReducer(state, { type: 'UPDATE_LOBBY_PLAYER', id: 'b', colourId: 'emerald' })
+  check('a free colour is accepted', state.lobby[1].colourId, 'emerald')
+}
+{
+  // Guards: too few, too many, duplicates, and starting early.
+  let state = createInitialState()
+  state = gameReducer(state, { type: 'ADD_LOBBY_PLAYER', id: 'a', name: 'A', colourId: 'crimson' })
+  state = gameReducer(state, { type: 'START_GAME' })
+  check('one player cannot start a game', state.phase, 'setup')
+
+  state = gameReducer(state, { type: 'ADD_LOBBY_PLAYER', id: 'a', name: 'again', colourId: 'azure' })
+  check('the same id cannot take two seats', state.lobby.length, 1)
+
+  for (let i = 0; i < 8; i++) {
+    state = gameReducer(state, { type: 'ADD_LOBBY_PLAYER', id: `x${i}`, name: `X${i}`, colourId: 'azure' })
+  }
+  check('the lobby stops at the maximum', state.lobby.length, DEFAULT_SETTINGS.maxPlayers)
+
+  state = gameReducer(state, { type: 'REMOVE_LOBBY_PLAYER', id: 'x0' })
+  check('a seat can be given up', state.lobby.length, DEFAULT_SETTINGS.maxPlayers - 1)
+}
+
+// ===========================================================================
+console.log('— Each player rolls their own opening die —')
+// ===========================================================================
+
+{
+  let state = createInitialState()
+  for (const id of ['a', 'b', 'c']) {
+    state = gameReducer(state, { type: 'ADD_LOBBY_PLAYER', id, name: id.toUpperCase(), colourId: 'crimson' })
+  }
+  state = gameReducer(state, { type: 'START_GAME' })
+
+  // Rolling names a player, so one device cannot roll for everyone.
+  state = gameReducer(state, { type: 'ROLL_FOR_ORDER', playerId: 'b' })
+  check('only the named player rolled', state.orderRolls.map((e) => e.dice !== null), [false, true, false])
+
+  // Rolling twice for the same player changes nothing.
+  const bTotal = state.orderRolls.find((e) => e.playerId === 'b')!.total
+  state = gameReducer(state, { type: 'ROLL_FOR_ORDER', playerId: 'b' })
+  check('a player cannot roll twice', state.orderRolls.find((e) => e.playerId === 'b')!.total, bTotal)
+
+  state = gameReducer(state, { type: 'ROLL_FOR_ORDER', playerId: 'a' })
+  state = gameReducer(state, { type: 'ROLL_FOR_ORDER', playerId: 'c' })
+  ok('everyone has now rolled', state.orderRolls.every((e) => e.dice !== null))
+
+  // A player not in the roll-off cannot roll.
+  const before = JSON.stringify(state.orderRolls)
+  state = gameReducer(state, { type: 'ROLL_FOR_ORDER', playerId: 'nobody' })
+  check('an unknown player cannot roll', JSON.stringify(state.orderRolls), before)
+}
+
+// ===========================================================================
+console.log('— What a joined phone is allowed to do —')
+// ===========================================================================
+
+{
+  // Lobby phase: you own your row and nothing else.
+  let lobby = createInitialState()
+  lobby = gameReducer(lobby, { type: 'ADD_LOBBY_PLAYER', id: 'host', name: 'H', colourId: 'crimson', isHost: true })
+  lobby = gameReducer(lobby, { type: 'ADD_LOBBY_PLAYER', id: 'g1', name: 'G', colourId: 'azure' })
+
+  ok('may rename themselves', guestMayDo({ type: 'UPDATE_LOBBY_PLAYER', id: 'g1', name: 'x' }, 'g1', lobby))
+  ok('may NOT rename anyone else', !guestMayDo({ type: 'UPDATE_LOBBY_PLAYER', id: 'host', name: 'x' }, 'g1', lobby))
+  ok('may give up their own seat', guestMayDo({ type: 'REMOVE_LOBBY_PLAYER', id: 'g1' }, 'g1', lobby))
+  ok('may NOT remove anyone else', !guestMayDo({ type: 'REMOVE_LOBBY_PLAYER', id: 'host' }, 'g1', lobby))
+  ok('may NOT add extra seats', !guestMayDo({ type: 'ADD_LOBBY_PLAYER', id: 'x', name: 'x', colourId: 'emerald' }, 'g1', lobby))
+  ok('may NOT start the game', !guestMayDo({ type: 'START_GAME' }, 'g1', lobby))
+  ok('an unseated phone may do nothing', !guestMayDo({ type: 'UPDATE_LOBBY_PLAYER', id: 'g1', name: 'x' }, null, lobby))
+
+  // Opening roll: there is no "turn" yet, so this must not be gated on one.
+  const rolling = gameReducer(lobby, { type: 'START_GAME' })
+  check('the roll-off has no turn order yet', rolling.turnOrder, [])
+  ok('may take their OWN opening roll', guestMayDo({ type: 'ROLL_FOR_ORDER', playerId: 'g1' }, 'g1', rolling))
+  ok('may NOT roll for someone else', !guestMayDo({ type: 'ROLL_FOR_ORDER', playerId: 'host' }, 'g1', rolling))
+  ok('may NOT confirm the order', !guestMayDo({ type: 'CONFIRM_ORDER' }, 'g1', rolling))
+}
+{
+  // In play: only on your own turn, and never the host controls.
+  const state = makeState(2)
+  const upNow = state.turnOrder[state.currentIndex]
+  const other = state.turnOrder[1]
+
+  ok('may roll on their own turn', guestMayDo({ type: 'ROLL_DICE' }, upNow, state))
+  ok('may NOT roll on someone else’s turn', !guestMayDo({ type: 'ROLL_DICE' }, other, state))
+  ok('may buy on their own turn', guestMayDo({ type: 'BUY_PROPERTY' }, upNow, state))
+  ok('may NOT buy out of turn', !guestMayDo({ type: 'BUY_PROPERTY' }, other, state))
+
+  ok('may NOT end the game', !guestMayDo({ type: 'END_GAME' }, upNow, state))
+  ok('may NOT remove a player', !guestMayDo({ type: 'REMOVE_PLAYER', playerId: other }, upNow, state))
+  ok('may NOT change the house rules', !guestMayDo({ type: 'UPDATE_SETTINGS', settings: state.settings }, upNow, state))
+  ok('may NOT set the timer', !guestMayDo({ type: 'SET_TIMER', durationMs: 60000 }, upNow, state))
+  ok('may NOT reset the game', !guestMayDo({ type: 'RESET' }, upNow, state))
+  ok('may NOT push a whole state across', !guestMayDo({ type: 'NET_SYNC', state }, upNow, state))
+}
+{
+  // Redaction really removes the numbers rather than hiding them.
+  const state = makeState(3)
+  state.players[0].cash = 11111
+  state.players[1].cash = 22222
+  state.players[2].cash = 33333
+
+  const forP2 = redactFor(state, state.players[1].id)
+  check('their own cash survives', forP2.players[1].cash, 22222)
+  check('and is marked visible', forP2.players[1].cashHidden, false)
+  check('everyone else is zeroed', [forP2.players[0].cash, forP2.players[2].cash], [0, 0])
+  check('and marked hidden', [forP2.players[0].cashHidden, forP2.players[2].cashHidden], [true, true])
+  ok(
+    'no other balance appears anywhere in what is sent',
+    !JSON.stringify(forP2).includes('11111') && !JSON.stringify(forP2).includes('33333'),
+  )
+  check('the host sends its ranking too', forP2.leaderboardOrder?.length, 3)
 }
 
 // ===========================================================================

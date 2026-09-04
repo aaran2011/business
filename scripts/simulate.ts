@@ -145,21 +145,29 @@ for (let game = 0; game < GAMES; game++) {
   try {
     const playerCount = 2 + Math.floor(rng() * 5)
     let state = createInitialState()
-    state = gameReducer(state, {
-      type: 'START_GAME',
-      players: Array.from({ length: playerCount }, (_, i) => ({
+    for (let i = 0; i < playerCount; i++) {
+      state = gameReducer(state, {
+        type: 'ADD_LOBBY_PLAYER',
+        id: `p${i + 1}`,
         name: `P${i + 1}`,
         colourId: ['crimson', 'azure', 'emerald', 'amber', 'violet', 'slate'][i],
-      })),
-    })
+      })
+    }
+    state = gameReducer(state, { type: 'START_GAME' })
 
     let guard = 0
     while (state.phase === 'orderRoll' && guard++ < 200) {
-      const before = state.orderRolls.map((e) => e.total)
-      state = gameReducer(state, { type: 'ROLL_FOR_ORDER' })
-      if (JSON.stringify(before) === JSON.stringify(state.orderRolls.map((e) => e.total))) break
+      // Each player takes their own opening roll, as the screens now do.
+      const pending = state.orderRolls.find(
+        (e) => e.dice === null && state.orderContenders.includes(e.playerId),
+      )
+      if (pending) {
+        state = gameReducer(state, { type: 'ROLL_FOR_ORDER', playerId: pending.playerId })
+        continue
+      }
       const next = gameReducer(state, { type: 'CONFIRM_ORDER' })
       if (next.phase === 'playing') state = next
+      else break
     }
 
     if (state.phase !== 'playing') {

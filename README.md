@@ -10,7 +10,7 @@ codebase.
 ```bash
 npm install
 npm run dev        # http://localhost:4600
-npm test           # typecheck + 303 rule assertions
+npm test           # typecheck + 348 rule assertions
 npm run simulate   # plays 200 full random games, checks invariants
 npm run build      # production build into dist/
 ```
@@ -128,7 +128,13 @@ transport and utility assets orbiting it.
 - The host presses **Get the code** and leaves that phone open — it runs the
   game.
 - Everyone else opens the same link, presses **Put Code — join a game**, types
-  the code and picks which player they are.
+  the code, then **puts in their own name and picks their own colour**. They
+  appear in the lobby on every screen as they do it.
+- The lobby is shared state, so each device may edit only its own row —
+  everyone else's is shown greyed with "on their phone".
+- **Each player takes their own opening roll**, on their own device: the Roll
+  button only appears on your row. The host does not roll for anybody who has
+  joined from a phone.
 - From then on each phone shows the live board, and you roll on your own turn.
 
 **Every player's cash is private to their own phone.** A joined phone is sent

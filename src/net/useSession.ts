@@ -2,7 +2,7 @@ import Peer, { type DataConnection } from 'peerjs'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createInitialState, gameReducer } from '../engine/game'
 import type { GameAction, GameState } from '../engine/types'
-import { peerIdForCode, redactFor, type NetMessage } from './protocol'
+import { guestMayDo, peerIdForCode, redactFor, type NetMessage } from './protocol'
 
 /**
  * Holds the game and, when more than one device is playing, keeps them in step.
@@ -29,11 +29,19 @@ export interface Session {
   myPlayerId: string | null
   /** Seats already taken by a phone, so two people cannot claim one player. */
   takenSeats: string[]
+  /**
+   * Whether this device is the one that plays a given seat. On the host that
+   * is every seat no phone has taken; on a phone it is only its own.
+   */
+  controlsPlayer: (playerId: string) => boolean
   /** How many phones are connected to this host. */
   guestCount: number
   startHosting: () => void
   joinGame: (code: string) => void
-  claimSeat: (playerId: string) => void
+  /** Guest: add myself to the host's lobby. */
+  addMe: (name: string, colourId: string) => void
+  /** Guest: change my own name or colour. */
+  editMe: (patch: { name?: string; colourId?: string }) => void
   leave: () => void
 }
 
@@ -112,36 +120,53 @@ export function useSession(): Session {
         const guest = guestsRef.current.get(conn.connectionId)
         if (!guest) return
 
-        if (message.t === 'claim') {
-          const alreadyTaken = [...guestsRef.current.values()].some(
-            (g) => g.playerId === message.playerId && g.conn.connectionId !== conn.connectionId,
-          )
-          if (alreadyTaken) {
-            conn.send({ t: 'reject', reason: 'Someone else is already playing as them.' } as NetMessage)
+        if (message.t === 'addMe') {
+          const current = stateRef.current
+          if (current.phase !== 'setup') return
+          if (current.lobby.length >= current.settings.maxPlayers) {
+            conn.send({ t: 'full' } as NetMessage)
             return
           }
-          guest.playerId = message.playerId
+          // The host mints the id so two phones cannot generate the same one.
+          const id = `p${Date.now().toString(36)}${Math.floor(Math.random() * 1000)}`
+          guest.playerId = id
+          applyLocally({
+            type: 'ADD_LOBBY_PLAYER',
+            id,
+            name: message.name,
+            colourId: message.colourId,
+          })
           setTakenSeats(
             [...guestsRef.current.values()]
               .map((g) => g.playerId)
               .filter((id): id is string => id !== null),
           )
-          conn.send({ t: 'claimed', playerId: message.playerId } as NetMessage)
-          conn.send({
-            t: 'state',
-            state: redactFor(stateRef.current, message.playerId),
-            seats: [],
-          } as NetMessage)
+          conn.send({ t: 'claimed', playerId: id } as NetMessage)
+          return
+        }
+
+        if (message.t === 'editMe') {
+          // A phone may only ever edit its own seat.
+          if (!guest.playerId) return
+          applyLocally({
+            type: 'UPDATE_LOBBY_PLAYER',
+            id: guest.playerId,
+            name: message.name,
+            colourId: message.colourId,
+          })
           return
         }
 
         if (message.t === 'action') {
-          // A phone may only act for the seat it claimed, and only on its turn.
-          const current = stateRef.current
-          const whoseTurn = current.turnOrder[current.currentIndex]
-          const allowed = guest.playerId !== null && guest.playerId === whoseTurn
-          if (!allowed) {
-            conn.send({ t: 'reject', reason: 'It is not your turn.' } as NetMessage)
+          // The host is the authority on what a phone may do — see guestMayDo.
+          if (!guestMayDo(message.action, guest.playerId, stateRef.current)) {
+            conn.send({
+              t: 'reject',
+              reason:
+                stateRef.current.phase === 'playing'
+                  ? 'It is not your turn.'
+                  : 'Only the host can do that.',
+            } as NetMessage)
             return
           }
           applyLocally(message.action)
@@ -214,6 +239,8 @@ export function useSession(): Session {
           setError(null)
         } else if (message.t === 'reject') {
           setError(message.reason)
+        } else if (message.t === 'full') {
+          setError('That game is full.')
         }
       })
 
@@ -234,9 +261,25 @@ export function useSession(): Session {
     })
   }, [])
 
-  const claimSeat = useCallback((playerId: string) => {
-    hostConnRef.current?.send({ t: 'claim', playerId } as NetMessage)
+  const addMe = useCallback((name: string, colourId: string) => {
+    hostConnRef.current?.send({ t: 'addMe', name, colourId } as NetMessage)
   }, [])
+
+  const editMe = useCallback((patch: { name?: string; colourId?: string }) => {
+    hostConnRef.current?.send({ t: 'editMe', ...patch } as NetMessage)
+  }, [])
+
+  /**
+   * The host plays every seat no phone has taken; a phone plays only its own.
+   * This is what stops the host rolling on somebody else's behalf.
+   */
+  const controlsPlayer = useCallback(
+    (playerId: string) => {
+      if (roleRef.current === 'guest') return myPlayerId === playerId
+      return !takenSeats.includes(playerId)
+    },
+    [myPlayerId, takenSeats],
+  )
 
   const leave = useCallback(() => {
     peerRef.current?.destroy()
@@ -279,7 +322,9 @@ export function useSession(): Session {
     guestCount,
     startHosting,
     joinGame,
-    claimSeat,
+    addMe,
+    editMe,
     leave,
+    controlsPlayer,
   }
 }

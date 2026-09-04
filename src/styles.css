@@ -92,7 +92,7 @@ button:disabled {
 /* Board first, leaderboard beside it on anything laptop-width or wider. */
 .main {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 300px;
+  grid-template-columns: minmax(0, 1fr) 280px;
   gap: 14px;
   align-items: start;
   flex: 1;
@@ -101,6 +101,9 @@ button:disabled {
 @media (max-width: 1080px) {
   .main {
     grid-template-columns: minmax(0, 1fr);
+    /* Stack from the top: without this the grid stretches its rows apart and
+       leaves a dead band between the board and the leaderboard. */
+    align-content: start;
   }
   .side-col {
     position: static;
@@ -238,7 +241,7 @@ button:disabled {
   container-type: inline-size;
   position: relative;
   width: 100%;
-  max-width: min(820px, calc(100vh - 190px));
+  max-width: min(940px, calc(100vh - 150px));
   aspect-ratio: 1;
   display: grid;
   gap: 0;
@@ -251,7 +254,8 @@ button:disabled {
 
 @media (max-width: 1080px) {
   .board {
-    max-width: min(820px, 100%);
+    /* On a phone the board is the point — give it the full width. */
+    max-width: 100%;
   }
 }
 
@@ -312,8 +316,8 @@ button:disabled {
 
 .cell-name {
   font-weight: 800;
-  font-size: 1.36cqi;
-  line-height: 1.08;
+  font-size: 1.46cqi;
+  line-height: 1.06;
   letter-spacing: -0.02em;
   /*
    * Long single words (Switzerland, Petroleum) must never be cut off. Break
@@ -325,14 +329,14 @@ button:disabled {
 }
 
 .cell-price {
-  font-size: 1.3cqi;
+  font-size: 1.36cqi;
   color: var(--text-faint);
   font-variant-numeric: tabular-nums;
   font-weight: 700;
 }
 
 .cell-icon {
-  font-size: 2.9cqi;
+  font-size: 3.2cqi;
   line-height: 1;
 }
 
@@ -346,7 +350,7 @@ button:disabled {
 }
 
 .cell-flag {
-  font-size: 2.4cqi;
+  font-size: 2.7cqi;
   line-height: 1;
 }
 
@@ -2178,4 +2182,130 @@ button:disabled {
 .lb-hidden {
   letter-spacing: 0.12em;
   color: var(--text-faint) !important;
+}
+
+/* ---------------------------------------------- lobby & joining extras */
+
+.setup-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.seat-badge {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+  white-space: nowrap;
+}
+
+.swatch-lg {
+  width: 40px;
+  height: 40px;
+}
+
+.colour-choice {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+
+.lobby-list {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.lobby-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 10px;
+  background: var(--panel-alt);
+  border: 1px solid var(--line-soft);
+  border-radius: 10px;
+  font-size: 13px;
+}
+
+.order-roll-btn {
+  margin-left: auto;
+}
+
+.order-waiting {
+  margin-left: auto;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.order-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 18px;
+  min-height: 34px;
+}
+
+.order-hint {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--text-dim);
+}
+
+/* ------------------------------------------- compact phone leaderboard */
+
+@media (max-width: 1080px) {
+  /* The board is what matters on a phone; the leaderboard is a strip. */
+  .side-col .panel-head {
+    padding: 7px 10px;
+    font-size: 9.5px;
+  }
+
+  .side-col .pause-btn {
+    padding: 4px 8px;
+    font-size: 10px;
+  }
+
+  .lb-row {
+    padding: 5px 10px;
+    font-size: 11.5px;
+    gap: 7px;
+  }
+
+  .lb-row .player-token {
+    width: 17px;
+    height: 17px;
+    font-size: 8px;
+    border-width: 1.5px;
+  }
+
+  .lb-rank {
+    width: 12px;
+    font-size: 10px;
+  }
+
+  .lb-money strong {
+    font-size: 12px;
+  }
+
+  .lb-money small {
+    font-size: 9px;
+  }
+
+  .lb-name {
+    font-size: 11.5px;
+  }
+
+  /* The explainer is desktop-only — it costs a whole board row on a phone. */
+  .side-col .rent-note {
+    display: none;
+  }
 }
