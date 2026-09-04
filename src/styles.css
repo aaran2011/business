@@ -2122,3 +2122,60 @@ button:disabled {
   font-size: 1.8cqi;
   font-weight: 800;
 }
+
+/* ------------------------------------------------ joining by code */
+
+.code-input {
+  width: 100%;
+  text-align: center;
+  font-size: clamp(26px, 9vw, 40px);
+  font-weight: 900;
+  letter-spacing: 0.24em;
+  text-indent: 0.24em;
+  padding: 16px 12px;
+  text-transform: uppercase;
+}
+
+.join-error {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: var(--bad-soft);
+  border: 1px solid #ffc2cb;
+  color: #c31b32;
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
+.host-status {
+  margin-top: 14px;
+  padding: 11px 13px;
+  border-radius: 11px;
+  font-size: 12.5px;
+  font-weight: 700;
+  text-align: center;
+}
+
+.host-status.is-ready {
+  background: var(--good-soft);
+  border: 1px solid #9de9c8;
+  color: #0a8f5e;
+}
+
+.host-status.is-connecting,
+.host-status.is-idle {
+  background: var(--info-soft);
+  border: 1px solid #cfe0ff;
+  color: #2b62d6;
+}
+
+.host-status.is-error {
+  background: var(--bad-soft);
+  border: 1px solid #ffc2cb;
+  color: #c31b32;
+}
+
+.lb-hidden {
+  letter-spacing: 0.12em;
+  color: var(--text-faint) !important;
+}

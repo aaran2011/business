@@ -20,6 +20,11 @@ export interface Player {
   jailReleasePending: boolean
   /** Eliminated players stay in the roster but take no turns. */
   isOut: boolean
+  /**
+   * True on a guest device for every player except its own: the cash figure
+   * has been stripped before sending, not merely hidden in the UI.
+   */
+  cashHidden?: boolean
   /** Seat order, fixed at setup. Turns run clockwise through this. */
   seat: number
 }
@@ -138,6 +143,11 @@ export interface GameTimer {
 export interface GameState {
   /** Short shareable code identifying this game session. */
   gameCode: string
+  /**
+   * Set only on a guest device: the host's ranking, since a guest cannot
+   * compute it without everyone's cash.
+   */
+  leaderboardOrder?: string[]
   phase: 'setup' | 'orderRoll' | 'playing' | 'gameOver' | 'timeUp' | 'ended'
   settings: GameSettings
 
@@ -218,3 +228,5 @@ export type GameAction =
   /** From the results screen: carry on playing with the clock switched off. */
   | { type: 'RESUME_WITHOUT_TIMER' }
   | { type: 'RESET' }
+  /** Wholesale replacement of the game with the host's copy. Network only. */
+  | { type: 'NET_SYNC'; state: GameState }

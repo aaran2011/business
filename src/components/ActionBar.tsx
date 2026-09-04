@@ -10,6 +10,8 @@ interface Props {
   onHouseRules: () => void
   onEndGame: () => void
   onRemovePlayer: () => void
+  /** False on a joined phone when it is somebody else's turn. */
+  canAct: boolean
 }
 
 /**
@@ -23,8 +25,19 @@ export function ActionBar({
   onHouseRules,
   onEndGame,
   onRemovePlayer,
+  canAct,
 }: Props) {
   if (state.phase !== 'playing') return null
+
+  if (!canAct) {
+    return (
+      <div className="actionbar">
+        <div className="action-hint" style={{ marginLeft: 0 }}>
+          {currentPlayer(state).name} is playing. Your turn comes round next.
+        </div>
+      </div>
+    )
+  }
 
   const player = currentPlayer(state)
   const owed = debtOwedBy(state, player.id)

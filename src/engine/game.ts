@@ -81,6 +81,9 @@ function emptyHoldings(): Record<string, Holding> {
 
 /** Pure reducer. Clones, mutates the clone, returns it. */
 export function gameReducer(state: GameState, action: GameAction): GameState {
+  // A guest device does not run the rules; it is handed the host's game whole.
+  if (action.type === 'NET_SYNC') return action.state
+
   const next = structuredClone(state) as GameState
   apply(next, action)
   return next
@@ -164,6 +167,8 @@ function apply(state: GameState, action: GameAction): void {
     case 'RESET':
       Object.assign(state, createInitialState(state.settings))
       return
+    case 'NET_SYNC':
+      return // handled before the clone, in gameReducer
   }
 }
 

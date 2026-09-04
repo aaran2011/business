@@ -14,7 +14,14 @@ export function Leaderboard({
   state: GameState
   dispatch: (action: GameAction) => void
 }) {
-  const rows = leaderboard(state)
+  // A joined phone has not been sent everyone's cash, so it cannot rank them
+  // itself — the host does that and sends the order along with the game.
+  const ranked = leaderboard(state)
+  const rows = state.leaderboardOrder
+    ? state.leaderboardOrder
+        .map((id) => ranked.find((r) => r.player.id === id))
+        .filter((r): r is (typeof ranked)[number] => Boolean(r))
+    : ranked
   const currentId = state.turnOrder[state.currentIndex]
   const pauseRequested = state.pauseRequested
 
@@ -52,15 +59,27 @@ export function Leaderboard({
             {player.isOut && <span className="tag tag-out">Out</span>}
           </span>
           <span className="lb-money">
-            <strong>{money(player.cash)}</strong>
-            <small>{money(assets.netWorth)} total</small>
+            {player.cashHidden ? (
+              <>
+                <strong className="lb-hidden" title="Private to that player's own phone">
+                  •••••
+                </strong>
+                <small>private</small>
+              </>
+            ) : (
+              <>
+                <strong>{money(player.cash)}</strong>
+                <small>{money(assets.netWorth)} total</small>
+              </>
+            )}
           </span>
         </div>
       ))}
 
       <div className="rent-note">
         Bold figure is cash in hand. Total counts cash, property and buildings — a player with no
-        cash can still lead.
+        cash can still lead. On a joined phone every other player's balance shows as ••••• — it is
+        never sent to that device.
       </div>
     </div>
   )

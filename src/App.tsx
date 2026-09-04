@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { BOARD, BOARD_SIZE } from './data/board'
 import { ActionBar } from './components/ActionBar'
 import { Board } from './components/Board'
@@ -15,7 +15,8 @@ import { ResultsScreen } from './components/ResultsScreen'
 import { SetupScreen } from './components/SetupScreen'
 import { PauseOverlay, TimerModal } from './components/TimerModal'
 import { canBuild } from './engine/building'
-import { createInitialState, gameReducer } from './engine/game'
+import { JoinPanel } from './components/JoinPanel'
+import { useSession } from './net/useSession'
 import { money } from './engine/log'
 import { debtOwedBy, displayNameOf } from './engine/queries'
 import type { GameAction, GameState } from './engine/types'
@@ -23,7 +24,14 @@ import type { GameAction, GameState } from './engine/types'
 type Dispatch = (action: GameAction) => void
 
 export default function App() {
-  const [state, dispatch] = useReducer(gameReducer, undefined, () => createInitialState())
+  const session = useSession()
+  const { state } = session
+  const dispatch = session.dispatch
+  const [showJoin, setShowJoin] = useState(false)
+  /** A guest shows the host's game; the host alone drives the turn machinery. */
+  const isGuest = session.role === 'guest'
+  const isGuestRef = useRef(isGuest)
+  isGuestRef.current = isGuest
 
   const [rolling, setRolling] = useState(false)
   const [displayPositions, setDisplayPositions] = useState<Record<string, number>>({})
@@ -81,7 +89,9 @@ export default function App() {
       setDisplayPositions((prev) => ({ ...prev, [playerId]: (from + step) % BOARD_SIZE }))
       if (step >= steps) {
         window.clearInterval(timer)
-        dispatch({ type: 'COMPLETE_MOVE' })
+        // The guest animates the pawn to match, but the host decides when the
+        // move is finished — otherwise two devices resolve the same landing.
+        if (!isGuestRef.current) dispatch({ type: 'COMPLETE_MOVE' })
       }
     }, state.settings.moveStepMs)
 
@@ -106,7 +116,7 @@ export default function App() {
   const blockedByDebt = currentId ? debtOwedBy(state, currentId) > 0 : false
 
   useEffect(() => {
-    if (!state.settings.turn.autoEnd) return
+    if (!state.settings.turn.autoEnd || isGuest) return
     if (state.phase !== 'playing' || state.paused) return
     if (state.stage !== 'awaitingEndTurn') return
     if (state.popups.length > 0 || dialogOpen || blockedByDebt) return
@@ -126,6 +136,7 @@ export default function App() {
     state.settings.turn.autoEndDelayMs,
     dialogOpen,
     blockedByDebt,
+    isGuest,
   ])
 
   // Game timer countdown.
@@ -138,15 +149,26 @@ export default function App() {
     const tick = () => {
       const left = endsAt - Date.now()
       setRemainingMs(Math.max(0, left))
-      if (left <= 0) dispatch({ type: 'TIME_UP' })
+      if (left <= 0 && !isGuestRef.current) dispatch({ type: 'TIME_UP' })
     }
     tick()
     const timer = window.setInterval(tick, 250)
     return () => window.clearInterval(timer)
   }, [state.timer, state.phase])
 
+  // A guest stays on the join screen until they have actually taken a seat —
+  // including after the host starts, since the seats only exist from then on.
+  const seatedGuest = isGuest && session.myPlayerId !== null
+  if (showJoin && !seatedGuest) {
+    return <JoinPanel session={{ ...session, dispatch: act }} onBack={() => setShowJoin(false)} />
+  }
   if (state.phase === 'setup') {
-    return <SetupScreen gameCode={state.gameCode} dispatch={act} />
+    return (
+      <SetupScreen
+        session={{ ...session, dispatch: act }}
+        onJoinInstead={() => setShowJoin(true)}
+      />
+    )
   }
   if (state.phase === 'orderRoll') {
     return <OrderRollScreen state={state} dispatch={act} rolling={rolling} rollId={rollId} />
@@ -159,6 +181,12 @@ export default function App() {
     <PlayingView
       state={state}
       dispatch={act}
+      canAct={!isGuest || session.myPlayerId === state.turnOrder[state.currentIndex]}
+      seatName={
+        isGuest
+          ? (state.players.find((p) => p.id === session.myPlayerId)?.name ?? null)
+          : null
+      }
       rolling={rolling}
       rollId={rollId}
       displayPositions={displayPositions}
@@ -180,6 +208,10 @@ export default function App() {
 interface PlayingViewProps {
   state: GameState
   dispatch: Dispatch
+  /** False on a phone whose player is not the one to move. */
+  canAct: boolean
+  /** The seat this phone is playing, when it joined with a code. */
+  seatName: string | null
   rolling: boolean
   rollId: number
   displayPositions: Record<string, number>
@@ -199,6 +231,8 @@ interface PlayingViewProps {
 function PlayingView({
   state,
   dispatch,
+  canAct,
+  seatName,
   rolling,
   rollId,
   displayPositions,
@@ -286,11 +320,13 @@ function PlayingView({
           rollId={rollId}
           centreStatus={centreStatus}
           onRoll={() => dispatch({ type: 'ROLL_DICE' })}
-          canRoll={state.stage === 'awaitingRoll' && owed === 0 && !state.paused}
+          canRoll={state.stage === 'awaitingRoll' && owed === 0 && !state.paused && canAct}
           rollPrompt={
-            state.stage === 'awaitingRoll' && owed === 0 && !state.paused
-              ? `${player.name} — tap the die to roll`
-              : ''
+            !canAct
+              ? `${player.name} is playing — watching from ${seatName ?? 'your phone'}`
+              : state.stage === 'awaitingRoll' && owed === 0 && !state.paused
+                ? `${player.name} — tap the die to roll`
+                : ''
           }
           dieColour={player.colourHex}
           centreExtra={
@@ -313,6 +349,7 @@ function PlayingView({
       <ActionBar
         state={state}
         dispatch={dispatch}
+        canAct={canAct}
         onManage={() => setShowManage(true)}
         onHouseRules={() => setShowHouseRules(true)}
         onEndGame={() => dispatch({ type: 'END_GAME' })}

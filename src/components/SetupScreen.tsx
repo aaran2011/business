@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { PLAYER_COLOURS } from '../data/playerColours'
 import { DEFAULT_SETTINGS } from '../data/settings'
 import { money } from '../engine/log'
-import type { GameAction } from '../engine/types'
+import type { Session } from '../net/useSession'
 
 interface Entry {
   name: string
@@ -11,12 +11,14 @@ interface Entry {
 
 /** 2–6 players, each with a name and a token colour. */
 export function SetupScreen({
-  gameCode,
-  dispatch,
+  session,
+  onJoinInstead,
 }: {
-  gameCode: string
-  dispatch: (action: GameAction) => void
+  session: Session
+  onJoinInstead: () => void
 }) {
+  const gameCode = session.state.gameCode
+  const dispatch = session.dispatch
   const [copied, setCopied] = useState(false)
   const [showCode, setShowCode] = useState(false)
   const { minPlayers, maxPlayers, startingCash } = DEFAULT_SETTINGS
@@ -57,7 +59,7 @@ export function SetupScreen({
             </div>
             <div className="modal-body">
               <div className="code-box">
-                <span className="code-label">Share this code</span>
+                <span className="code-label">Put this code in on the other phone</span>
                 <span className="code-value">{gameCode}</span>
                 <button
                   className="btn btn-sm"
@@ -74,10 +76,21 @@ export function SetupScreen({
                   {copied ? 'Copied' : 'Copy code'}
                 </button>
               </div>
-              <div className="notice" style={{ marginTop: 14, marginBottom: 0 }}>
-                This code names the game session. Joining from a second device also needs a live
-                server to sync the board between phones, which this build does not have yet — so
-                for now everyone plays by passing this one device around.
+
+              <div className={`host-status is-${session.status}`}>
+                {session.status === 'connecting' && 'Opening the game to other phones…'}
+                {session.status === 'ready' &&
+                  (session.guestCount === 0
+                    ? 'Open. Put the code in on another phone to join.'
+                    : `${session.guestCount} phone${session.guestCount === 1 ? '' : 's'} connected.`)}
+                {session.status === 'error' && (session.error ?? 'Could not open the game.')}
+                {session.status === 'idle' && 'Getting ready…'}
+              </div>
+
+              <div className="rent-note" style={{ background: 'transparent', padding: '10px 0 0' }}>
+                This phone runs the game, so keep it open. Everyone else puts the code in on their
+                own phone under <strong>Join a game</strong>, picks who they are, and sees only
+                their own money.
               </div>
             </div>
             <div className="modal-foot">
@@ -153,8 +166,17 @@ export function SetupScreen({
           <button className="btn" onClick={addPlayer} disabled={entries.length >= maxPlayers}>
             Add player
           </button>
-          <button className="btn" onClick={() => setShowCode(true)}>
+          <button
+            className="btn"
+            onClick={() => {
+              session.startHosting()
+              setShowCode(true)
+            }}
+          >
             Get the code
+          </button>
+          <button className="btn" onClick={onJoinInstead}>
+            Put Code — join a game
           </button>
           <button className="btn btn-primary" style={{ marginLeft: 'auto' }} onClick={start}>
             Continue → roll for turn order

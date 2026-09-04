@@ -123,11 +123,30 @@ transport and utility assets orbiting it.
 - A **game code** is generated for every session and shown on the start screen
   under *Get the code*.
 
-> **Not built: joining from another device.** A second phone cannot join, and
-> balances are not private per player, because both need a live server to sync
-> the board between devices — this is a static build with all state in one
-> browser tab. The game code is real and ready for that, but the sync layer
-> (Supabase Realtime or a small WebSocket server) still has to be added.
+### Playing from more than one phone
+
+- The host presses **Get the code** and leaves that phone open — it runs the
+  game.
+- Everyone else opens the same link, presses **Put Code — join a game**, types
+  the code and picks which player they are.
+- From then on each phone shows the live board, and you roll on your own turn.
+
+**Every player's cash is private to their own phone.** A joined phone is sent
+the game with the other balances *removed* — they arrive as `•••••`, not hidden
+by CSS. The host device is the banker and necessarily sees the whole board.
+
+How it works, and the limits:
+
+- Devices talk to each other directly over WebRTC (`peerjs`), brokered by
+  PeerJS's free public signalling server. There is no backend, no account and
+  nothing to pay for — it still deploys as a static site.
+- **The host phone must stay open.** It is the only place the rules run; close
+  it and the game goes with it.
+- The rule engine has no idea the network exists. Guests send actions, the host
+  applies them, and the result is broadcast — so two devices can never disagree
+  about who owns Iraq.
+- The host only accepts an action from the phone whose seat it is, and only on
+  that seat's turn.
 
 ---
 
