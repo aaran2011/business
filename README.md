@@ -9,8 +9,8 @@ codebase.
 
 ```bash
 npm install
-npm run dev        # http://localhost:4600
-npm test           # typecheck + 348 rule assertions
+npm run dev        # http://localhost:4600 — and on your LAN IP, for phones
+npm test           # typecheck + 356 rule assertions
 npm run simulate   # plays 200 full random games, checks invariants
 npm run build      # production build into dist/
 ```
@@ -137,22 +137,36 @@ transport and utility assets orbiting it.
   joined from a phone.
 - From then on each phone shows the live board, and you roll on your own turn.
 
-**Every player's cash is private to their own phone.** A joined phone is sent
-the game with the other balances *removed* — they arrive as `•••••`, not hidden
-by CSS. The host device is the banker and necessarily sees the whole board.
+**Every player's cash is private to the device that plays that seat — the host
+included.** Two separate mechanisms:
+
+1. A joined phone is *sent* the game with the other balances removed, so they
+   never reach that device at all (`redactFor`).
+2. Every device, host included, renders through `maskCashExcept`, so it only
+   shows the balances of seats it actually plays. The host has to hold the real
+   numbers to run the bank, but it does not put them on screen.
+
+Everything is revealed on the results screen at the end of the game.
 
 How it works, and the limits:
 
 - Devices talk to each other directly over WebRTC (`peerjs`), brokered by
   PeerJS's free public signalling server. There is no backend, no account and
   nothing to pay for — it still deploys as a static site.
+- **Both devices have to be able to load the page.** `localhost:4600` only
+  works on this Mac; a phone needs either the Mac's LAN address
+  (`http://<ip>:4600`, printed by `npm run dev` as the Network line) or the
+  deployed Vercel URL.
 - **The host phone must stay open.** It is the only place the rules run; close
   it and the game goes with it.
 - The rule engine has no idea the network exists. Guests send actions, the host
   applies them, and the result is broadcast — so two devices can never disagree
   about who owns Iraq.
-- The host only accepts an action from the phone whose seat it is, and only on
-  that seat's turn.
+- The host decides what a phone may ask for, in one place: `guestMayDo` in
+  `src/net/protocol.ts`. You may edit or give up your own lobby row, take your
+  own opening roll, and act on your own turn — nothing else.
+- A device that is not up sees "Not your turn" and gets no buttons and no
+  decision card, rather than a choice it cannot make.
 
 ---
 

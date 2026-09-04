@@ -53,14 +53,31 @@ export type NetMessage =
  */
 export function redactFor(state: GameState, viewerPlayerId: string | null): GameState {
   return {
+    ...maskCashExcept(state, (id) => id === viewerPlayerId),
+    // Ranked here, on the host, while the real balances are still available.
+    leaderboardOrder: leaderboard(state).map((row) => row.player.id),
+  }
+}
+
+/**
+ * Hide every balance this device has no business seeing — including on the
+ * host. The host has to hold the real numbers to run the bank, but it should
+ * not be showing them on screen for players who are on their own phones.
+ *
+ * `isVisible` is normally the session's `controlsPlayer`, so a device sees the
+ * cash of the seats it actually plays and nobody else's.
+ */
+export function maskCashExcept(
+  state: GameState,
+  isVisible: (playerId: string) => boolean,
+): GameState {
+  return {
     ...state,
     players: state.players.map((player) =>
-      player.id === viewerPlayerId
+      isVisible(player.id)
         ? { ...player, cashHidden: false }
         : { ...player, cash: 0, cashHidden: true },
     ),
-    // Ranked here, on the host, while the real balances are still available.
-    leaderboardOrder: leaderboard(state).map((row) => row.player.id),
   }
 }
 

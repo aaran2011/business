@@ -2309,3 +2309,28 @@ button:disabled {
     display: none;
   }
 }
+
+/* A device that is only watching gets told so, not a decision it cannot make. */
+.not-your-turn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 4px 2px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-dim);
+}
+
+.not-your-turn-label {
+  flex: none;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--info-soft);
+  border: 1px solid #cfe0ff;
+  color: #2b62d6;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}

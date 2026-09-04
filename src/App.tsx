@@ -17,6 +17,7 @@ import { PauseOverlay, TimerModal } from './components/TimerModal'
 import { canBuild } from './engine/building'
 import { JoinPanel } from './components/JoinPanel'
 import { useSession } from './net/useSession'
+import { maskCashExcept } from './net/protocol'
 import { money } from './engine/log'
 import { debtOwedBy, displayNameOf } from './engine/queries'
 import type { GameAction, GameState } from './engine/types'
@@ -156,6 +157,19 @@ export default function App() {
     return () => window.clearInterval(timer)
   }, [state.timer, state.phase])
 
+  /**
+   * What this device is allowed to SHOW. Balances belong to whoever is playing
+   * that seat, so every other player's cash is masked — on the host too. The
+   * real state is still what the rules run on; this is only what is rendered.
+   * At the end of the game everything is revealed for the final standings.
+   */
+  const finished =
+    state.phase === 'timeUp' || state.phase === 'gameOver' || state.phase === 'ended'
+  const viewState = useMemo(
+    () => (finished ? state : maskCashExcept(state, session.controlsPlayer)),
+    [state, session.controlsPlayer, finished],
+  )
+
   // A guest stays on the join screen until they have actually taken a seat —
   // including after the host starts, since the seats only exist from then on.
   const seatedGuest = isGuest && session.myPlayerId !== null
@@ -173,7 +187,7 @@ export default function App() {
   if (state.phase === 'orderRoll') {
     return (
       <OrderRollScreen
-        state={state}
+        state={viewState}
         dispatch={act}
         rolling={rolling}
         rollId={rollId}
@@ -182,12 +196,12 @@ export default function App() {
     )
   }
   if (state.phase === 'timeUp' || state.phase === 'gameOver' || state.phase === 'ended') {
-    return <ResultsScreen state={state} dispatch={act} />
+    return <ResultsScreen state={viewState} dispatch={act} />
   }
 
   return (
     <PlayingView
-      state={state}
+      state={viewState}
       dispatch={act}
       canAct={session.controlsPlayer(state.turnOrder[state.currentIndex])}
       seatName={state.players.find((p) => p.id === session.myPlayerId)?.name ?? null}
@@ -260,6 +274,7 @@ function PlayingView({
     if (state.paused) return 'Paused.'
     if (state.stage === 'moving') return 'Moving…'
     if (state.stage === 'inJail') return `${player.name} is in Jail.`
+    if (!canAct) return `${player.name} is playing — not your turn.`
     if (state.stage === 'awaitingPurchase' && state.pendingPurchase) {
       return `${displayNameOf(state.pendingPurchase.propertyId)} — ${money(
         state.pendingPurchase.price,
@@ -269,12 +284,14 @@ function PlayingView({
       return `${displayNameOf(state.pendingBuild.propertyId)} is yours.`
     }
     return `${player.name} is on ${space.label}.`
-  }, [state, player, space])
+  }, [state, player, space, canAct])
 
   // The property card shown after landing, or when a space is clicked.
-  const buildOffer = state.stage === 'awaitingBuild' ? state.pendingBuild : null
-  const cardId =
-    selectedProperty ?? state.pendingPurchase?.propertyId ?? buildOffer?.propertyId ?? null
+  const buildOffer = state.stage === 'awaitingBuild' && canAct ? state.pendingBuild : null
+  // Only the device that has to answer sees the decision card pop up. Everyone
+  // else can still tap a space to read it, but is not asked to choose.
+  const offeredToMe = canAct ? state.pendingPurchase : null
+  const cardId = selectedProperty ?? offeredToMe?.propertyId ?? buildOffer?.propertyId ?? null
   const popup = state.popups[0] ?? null
   const buildCheck = buildOffer ? canBuild(state, player.id, buildOffer.propertyId) : null
   const lowTime = remainingMs !== null && remainingMs <= 60000
@@ -389,9 +406,7 @@ function PlayingView({
               </span>
               <div className="buyer-who">
                 <span className="buyer-label">
-                  {state.pendingPurchase?.propertyId === cardId
-                    ? "Buying \u2014 it's their turn"
-                    : 'Current turn'}
+                  {offeredToMe?.propertyId === cardId ? "Buying \u2014 it's their turn" : 'Current turn'}
                 </span>
                 <strong>{player.name}</strong>
               </div>
@@ -407,24 +422,22 @@ function PlayingView({
               <PropertyCard state={state} propertyId={cardId} />
             </div>
             <div className="modal-foot">
-              {state.pendingPurchase?.propertyId === cardId ? (
+              {offeredToMe?.propertyId === cardId ? (
                 <>
-                  {player.cash < state.pendingPurchase.price && (
+                  {player.cash < offeredToMe.price && (
                     <span className="foot-note">
-                      {money(state.pendingPurchase.price)} needed — you hold {money(player.cash)}.
+                      {money(offeredToMe.price)} needed — you hold {money(player.cash)}.
                     </span>
                   )}
                   <button
                     className="btn btn-good"
-                    disabled={player.cash < state.pendingPurchase.price}
+                    disabled={player.cash < offeredToMe.price}
                     onClick={() => dispatch({ type: 'BUY_PROPERTY' })}
                   >
-                    Buy for {money(state.pendingPurchase.price)}
+                    Buy for {money(offeredToMe.price)}
                   </button>
                   <button className="btn" onClick={() => dispatch({ type: 'DECLINE_PURCHASE' })}>
-                    {player.cash < state.pendingPurchase.price
-                      ? 'Leave it with the Bank'
-                      : "Don't buy"}
+                    {player.cash < offeredToMe.price ? 'Leave it with the Bank' : "Don't buy"}
                   </button>
                 </>
               ) : buildOffer?.propertyId === cardId ? (

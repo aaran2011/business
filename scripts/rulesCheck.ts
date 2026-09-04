@@ -43,7 +43,7 @@ import {
   handleUno,
   sendToJail,
 } from '../src/engine/spaces'
-import { guestMayDo, redactFor } from '../src/net/protocol'
+import { guestMayDo, maskCashExcept, redactFor } from '../src/net/protocol'
 import type { GameState } from '../src/engine/types'
 
 let passed = 0
@@ -1451,6 +1451,38 @@ console.log('— What a joined phone is allowed to do —')
     !JSON.stringify(forP2).includes('11111') && !JSON.stringify(forP2).includes('33333'),
   )
   check('the host sends its ranking too', forP2.leaderboardOrder?.length, 3)
+}
+
+// ===========================================================================
+console.log('— No device shows a balance it does not play —')
+// ===========================================================================
+
+{
+  const state = makeState(3)
+  state.players[0].cash = 11111
+  state.players[1].cash = 22222
+  state.players[2].cash = 33333
+  const [a, b, c] = state.players
+
+  // The HOST device: it plays seat A locally, the other two are on phones.
+  const hostView = maskCashExcept(state, (id) => id === a.id)
+  check('the host sees the seat it plays', hostView.players[0].cash, 11111)
+  check('but not the phones’ balances', [hostView.players[1].cash, hostView.players[2].cash], [0, 0])
+  check('and they are marked hidden', [hostView.players[1].cashHidden, hostView.players[2].cashHidden], [true, true])
+
+  // Pass-and-play: one device holds every seat, so nothing is masked.
+  const soloView = maskCashExcept(state, () => true)
+  check('a solo device sees everything', soloView.players.map((p) => p.cash), [11111, 22222, 33333])
+  ok('and nothing is flagged hidden', soloView.players.every((p) => p.cashHidden === false))
+
+  // A device holding two local seats sees both, and no others.
+  const twoSeats = maskCashExcept(state, (id) => id === a.id || id === c.id)
+  check('both of its own seats are visible', [twoSeats.players[0].cash, twoSeats.players[2].cash], [11111, 33333])
+  check('the third is still hidden', twoSeats.players[1].cash, 0)
+
+  // The real state is untouched — the rules still run on the true numbers.
+  check('masking does not mutate the game', state.players.map((p) => p.cash), [11111, 22222, 33333])
+  void b
 }
 
 // ===========================================================================

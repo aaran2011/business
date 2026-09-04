@@ -32,8 +32,9 @@ export function ActionBar({
   if (!canAct) {
     return (
       <div className="actionbar">
-        <div className="action-hint" style={{ marginLeft: 0 }}>
-          {currentPlayer(state).name} is playing. Your turn comes round next.
+        <div className="not-your-turn">
+          <span className="not-your-turn-label">Not your turn</span>
+          <span>{currentPlayer(state).name} is playing — wait for your go.</span>
         </div>
       </div>
     )
