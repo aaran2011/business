@@ -1,0 +1,32 @@
+import type { GameState, LogKind, PopupBody } from './types'
+
+const MAX_LOG_ENTRIES = 400
+
+export function addLog(state: GameState, kind: LogKind, text: string): void {
+  state.log.unshift({ id: state.nextLogId++, turn: state.turnNumber, kind, text })
+  if (state.log.length > MAX_LOG_ENTRIES) state.log.length = MAX_LOG_ENTRIES
+}
+
+/**
+ * Queue a popup. Popups do not replace one another — crossing START and then
+ * landing on Chance shows the round-complete card first, then the Chance card.
+ */
+export function setPopup(state: GameState, body: PopupBody): void {
+  state.popups.push({ id: state.nextPopupId++, body })
+}
+
+/** The popup currently on screen, if any. */
+export function currentPopup(state: GameState) {
+  return state.popups[0] ?? null
+}
+
+export function money(amount: number): string {
+  const sign = amount < 0 ? '-' : ''
+  return `${sign}$${Math.abs(Math.round(amount)).toLocaleString('en-US')}`
+}
+
+/** Signed form for popups: "+$2,000" / "-$3,000". */
+export function signedMoney(amount: number): string {
+  if (amount === 0) return '$0'
+  return `${amount > 0 ? '+' : '-'}$${Math.abs(Math.round(amount)).toLocaleString('en-US')}`
+}

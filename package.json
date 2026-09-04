@@ -1,0 +1,27 @@
+{
+  "name": "international-business",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port 4600",
+    "build": "tsc -b && vite build",
+    "preview": "vite preview --port 4600",
+    "typecheck": "tsc --noEmit",
+    "check": "esbuild scripts/rulesCheck.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/rulesCheck.mjs --log-level=warning && node node_modules/.cache/rulesCheck.mjs",
+    "simulate": "esbuild scripts/simulate.ts --bundle --platform=node --format=esm --outfile=node_modules/.cache/simulate.mjs --log-level=warning && node node_modules/.cache/simulate.mjs",
+    "test": "npm run typecheck && npm run check",
+    "ship": "bash scripts/ship.sh"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.11"
+  }
+}

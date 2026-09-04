@@ -1,0 +1,1315 @@
+/**
+ * Headless rules check. Verifies the engine against the printed rules without
+ * touching the UI. Run with: npm run check
+ */
+
+import {
+  BOARD,
+  BOARD_SIZE,
+  cellRectFor,
+  gridPositionFor,
+  JAIL_INDEX,
+  PARTY_HOUSE_INDEX,
+} from '../src/data/board'
+import { CHANCE_CARDS } from '../src/data/chanceCards'
+import { COUNTRIES } from '../src/data/properties'
+import { DEFAULT_SETTINGS } from '../src/data/settings'
+import { SPECIAL_ASSETS } from '../src/data/specialAssets'
+import { UNO_CARDS } from '../src/data/unoCards'
+import { buildOneStep, canBuild, sellBuilding } from '../src/engine/building'
+import { diceTotal, rollDice } from '../src/engine/dice'
+import { createInitialState, gameReducer, makeGameCode } from '../src/engine/game'
+import { attemptJailEscape } from '../src/engine/jail'
+import { mortgageProperty, unmortgageProperty } from '../src/engine/mortgage'
+import { movePlayer } from '../src/engine/movement'
+import { charge } from '../src/engine/payments'
+import {
+  calculatePlayerAssets,
+  checkElimination,
+  countCountriesOwned,
+  countCountriesOwnedInColour,
+  debtOwedBy,
+  hasCompleteColourGroup,
+  leaderboard,
+} from '../src/engine/queries'
+import { calculateRent } from '../src/engine/rent'
+import {
+  handleChance,
+  handleCustomDuty,
+  handlePartyHouse,
+  handlePropertyLanding,
+  handleResort,
+  handleTravellingDuty,
+  handleUno,
+  sendToJail,
+} from '../src/engine/spaces'
+import type { GameState } from '../src/engine/types'
+
+let passed = 0
+const failures: string[] = []
+
+function check(label: string, actual: unknown, expected: unknown) {
+  const a = JSON.stringify(actual)
+  const e = JSON.stringify(expected)
+  if (a === e) passed++
+  else failures.push(`${label}\n    expected ${e}\n    got      ${a}`)
+}
+
+function ok(label: string, condition: boolean) {
+  check(label, condition, true)
+}
+
+/** A playing state with `n` players, no randomness involved. */
+function makeState(n = 4): GameState {
+  let state = createInitialState()
+  state = gameReducer(state, {
+    type: 'START_GAME',
+    players: Array.from({ length: n }, (_, i) => ({
+      name: `P${i + 1}`,
+      colourId: ['crimson', 'azure', 'emerald', 'amber', 'violet', 'slate'][i],
+    })),
+  })
+  // Skip the roll-off deterministically.
+  state.orderRolls = state.orderRolls.map((e, i) => ({
+    ...e,
+    dice: [1, 1] as [number, number],
+    total: i === 0 ? 12 : 3,
+  }))
+  state = gameReducer(state, { type: 'CONFIRM_ORDER' })
+  return state
+}
+
+function give(state: GameState, playerId: string, ...propertyIds: string[]) {
+  for (const id of propertyIds) state.holdings[id].ownerId = playerId
+}
+
+// ===========================================================================
+console.log('\n— Board —')
+// ===========================================================================
+
+check('board has 36 spaces', BOARD_SIZE, 36)
+check('index 0 is START', BOARD[0].kind, 'start')
+check('index 9 is Resort (corner)', BOARD[9].kind, 'resort')
+check('index 18 is Party House (corner)', BOARD[18].kind, 'partyHouse')
+check('index 27 is Jail (corner)', BOARD[27].kind, 'jail')
+check('Jail index', JAIL_INDEX, 27)
+check('Party House index', PARTY_HOUSE_INDEX, 18)
+check('England at index 1', BOARD[1].propertyId, 'england')
+check('Singapore is last space', BOARD[35].propertyId, 'singapore')
+check('two UNO spaces', BOARD.filter((s) => s.kind === 'uno').map((s) => s.index), [4, 25])
+check('two Chance spaces', BOARD.filter((s) => s.kind === 'chance').map((s) => s.index), [16, 29])
+check('20 countries', Object.keys(COUNTRIES).length, 20)
+check('6 special assets', Object.keys(SPECIAL_ASSETS).length, 6)
+
+// ===========================================================================
+console.log('— Printed values (spot checks on the unusual ones) —')
+// ===========================================================================
+
+check('England price is 2500 with 700 site rent', [COUNTRIES.england.price, COUNTRIES.england.rent.site], [2500, 700])
+check('England house cost is 7000', COUNTRIES.england.houseCost, 7000)
+check('Italy price 3500 but house cost 2000', [COUNTRIES.italy.price, COUNTRIES.italy.houseCost], [3500, 2000])
+check('Switzerland house cost 6500', COUNTRIES.switzerland.houseCost, 6500)
+check('India house cost 5500 on a 4500 price', [COUNTRIES.india.price, COUNTRIES.india.houseCost], [4500, 5500])
+check('Hong Kong house cost 2500 on a 2000 price', COUNTRIES.hongKong.houseCost, 2500)
+check('USA hotel rent 7000', COUNTRIES.usa.rent.hotel, 7000)
+check('Airways price 10500 / paired rent 2500', [SPECIAL_ASSETS.airways.price, SPECIAL_ASSETS.airways.pairedRent], [10500, 2500])
+
+// ===========================================================================
+console.log('— START bonus —')
+// ===========================================================================
+
+{
+  const state = makeState(2)
+  const p = state.players[0]
+  p.position = 34
+  const before = p.cash
+  movePlayer(state, p.id, 4) // 34 -> 2, crosses START without stopping on it
+  check('passing straight over START pays 1500', p.cash - before, 1500)
+  check('position wraps correctly', p.position, 2)
+  check(
+    'the round-complete card is shown',
+    state.popups.some(
+      (pop) => pop.body.kind === 'simple' && pop.body.title === 'ROUND COMPLETE',
+    ),
+    true,
+  )
+  check('paid exactly once for the crossing', state.popups.length, 1)
+}
+{
+  const state = makeState(2)
+  const p = state.players[0]
+  p.position = 30
+  const before = p.cash
+  movePlayer(state, p.id, 6) // 30 -> 0, lands ON START
+  check('landing on START pays 1500', p.cash - before, 1500)
+}
+{
+  const state = makeState(2)
+  const p = state.players[0]
+  p.position = 5
+  const before = p.cash
+  movePlayer(state, p.id, 4)
+  check('no START money without crossing', p.cash - before, 0)
+}
+
+// ===========================================================================
+console.log('— Rent —')
+// ===========================================================================
+
+{
+  const state = makeState(2)
+  const [a] = state.players
+  give(state, a.id, 'egypt')
+  check('single green: plain site rent', calculateRent(state, 'egypt').amount, 300)
+
+  give(state, a.id, 'iran', 'iraq')
+  ok('3 greens completes the group', hasCompleteColourGroup(state, a.id, 'green'))
+  check('unimproved site rent doubles', calculateRent(state, 'egypt').amount, 600)
+
+  state.holdings.egypt.buildings = 1
+  check('1 house uses printed rent, not doubled', calculateRent(state, 'egypt').amount, 1300)
+  state.holdings.egypt.buildings = 4
+  check('hotel uses printed rent, not doubled', calculateRent(state, 'egypt').amount, 4900)
+
+  state.holdings.egypt.mortgaged = true
+  check('mortgaged property collects no rent', calculateRent(state, 'egypt').amount, 0)
+}
+{
+  // The doubling example from the rules: 400 site -> 800.
+  const state = makeState(2)
+  const [a] = state.players
+  give(state, a.id, 'australia', 'mexico', 'brazil')
+  check('gold group doubles 400 to 800', calculateRent(state, 'australia').amount, 800)
+  check('Mexico 900 site doubles to 1800', calculateRent(state, 'mexico').amount, 1800)
+}
+{
+  // Three same-colour cards double EVERY unimproved card of that colour, and
+  // a card that gets built on drops out of the doubling on its own.
+  const state = makeState(2)
+  const [a] = state.players
+  give(state, a.id, 'australia', 'mexico', 'brazil')
+  check('all three gold cards are doubled', [
+    calculateRent(state, 'australia').amount,
+    calculateRent(state, 'mexico').amount,
+    calculateRent(state, 'brazil').amount,
+  ], [800, 1800, 600])
+
+  // Build one house on Mexico only.
+  state.holdings.mexico.buildings = 1
+  check('the built card charges its printed 1-House rent', calculateRent(state, 'mexico').amount, 1800)
+  check('and is no longer doubled', calculateRent(state, 'mexico').doubled, false)
+  check('the other two cards keep their doubled site rent', [
+    calculateRent(state, 'australia').amount,
+    calculateRent(state, 'brazil').amount,
+  ], [800, 600])
+
+  // A card built on WITHOUT a colour group is simply the printed rent.
+  const solo = makeState(2)
+  const [x] = solo.players
+  give(solo, x.id, 'canada')
+  check('lone unimproved card is not doubled', calculateRent(solo, 'canada').amount, 400)
+  solo.holdings.canada.buildings = 2
+  check('lone card with 2 houses uses printed rent', calculateRent(solo, 'canada').amount, 2800)
+  check('never doubled on top of a building', calculateRent(solo, 'canada').doubled, false)
+}
+{
+  // Mexico's 1-House rent (1800) happens to equal its doubled site rent, so
+  // pin the rule on a card where the two differ.
+  const state = makeState(2)
+  const [a] = state.players
+  give(state, a.id, 'egypt', 'iran', 'iraq')
+  check('Egypt doubled site rent', calculateRent(state, 'egypt').amount, 600)
+  state.holdings.egypt.buildings = 1
+  check('Egypt with 1 house is the printed 1300, not 2x anything', calculateRent(state, 'egypt').amount, 1300)
+  check('Iran still doubled', calculateRent(state, 'iran').amount, 600)
+  check('Iraq still doubled', calculateRent(state, 'iraq').amount, 1000)
+}
+{
+  const state = makeState(2)
+  const [a, b] = state.players
+  give(state, a.id, 'satellite')
+  check('satellite alone charges 500', calculateRent(state, 'satellite').amount, 500)
+  give(state, a.id, 'waterways')
+  check('satellite paired charges 1000', calculateRent(state, 'satellite').amount, 1000)
+  check('waterways paired charges 2200', calculateRent(state, 'waterways').amount, 2200)
+
+  give(state, b.id, 'railways')
+  check('railways alone charges 1500', calculateRent(state, 'railways').amount, 1500)
+  give(state, b.id, 'roadways')
+  check('railways paired charges 2500', calculateRent(state, 'railways').amount, 2500)
+  check('roadways paired charges 1500', calculateRent(state, 'roadways').amount, 1500)
+
+  give(state, a.id, 'petroleum')
+  check('petroleum alone charges 500', calculateRent(state, 'petroleum').amount, 500)
+  give(state, a.id, 'airways')
+  check('petroleum paired charges 1000', calculateRent(state, 'petroleum').amount, 1000)
+  check('airways paired charges 2500', calculateRent(state, 'airways').amount, 2500)
+}
+
+// ===========================================================================
+console.log('— Building —')
+// ===========================================================================
+
+{
+  // A single owned country is enough — no colour group required.
+  const state = makeState(2)
+  const [a] = state.players
+  give(state, a.id, 'malaysia')
+  a.cash = 100000
+  check('one green card owned', countCountriesOwnedInColour(state, a.id, 'green'), 1)
+
+  const before = a.cash
+  ok('builds on a lone card with no colour group', buildOneStep(state, a.id, 'malaysia'))
+  check('house cost deducted', before - a.cash, COUNTRIES.malaysia.houseCost)
+  check('level is 1', state.holdings.malaysia.buildings, 1)
+
+  ok('builds a second house', buildOneStep(state, a.id, 'malaysia'))
+  ok('builds a third house', buildOneStep(state, a.id, 'malaysia'))
+  check('level is 3 after three houses', state.holdings.malaysia.buildings, 3)
+  check('houses cap at three', buildOneStep(state, a.id, 'malaysia'), false)
+  check('never reaches the hotel level', state.holdings.malaysia.buildings, 3)
+
+  check(
+    'every house charged the printed House Cost, never the Hotel Cost',
+    100000 - a.cash,
+    COUNTRIES.malaysia.houseCost * 3,
+  )
+  check('3-house rent is the printed value', calculateRent(state, 'malaysia').amount, 3600)
+
+  const beforeSell = a.cash
+  ok('sells a house back', sellBuilding(state, a.id, 'malaysia'))
+  check('level back to 2', state.holdings.malaysia.buildings, 2)
+  check(
+    'refund uses the House Cost and the configurable ratio',
+    a.cash - beforeSell,
+    Math.round(COUNTRIES.malaysia.houseCost * state.settings.buildings.sellRefundRatio),
+  )
+}
+{
+  // The colour-group gate is still available as a house rule.
+  const state = makeState(2)
+  const [a] = state.players
+  state.settings.colourGroups.requiredForBuilding = true
+  give(state, a.id, 'malaysia')
+  a.cash = 100000
+  check('gate on: one card is not enough', buildOneStep(state, a.id, 'malaysia'), false)
+  give(state, a.id, 'iran', 'iraq')
+  ok('gate on: three same-colour cards unlock building', buildOneStep(state, a.id, 'malaysia'))
+}
+{
+  // Raising the cap restores the printed Hotel tier and its own cost.
+  const state = makeState(2)
+  const [a] = state.players
+  state.settings.buildings.maxLevel = 4
+  give(state, a.id, 'malaysia')
+  a.cash = 100000
+  buildOneStep(state, a.id, 'malaysia')
+  buildOneStep(state, a.id, 'malaysia')
+  buildOneStep(state, a.id, 'malaysia')
+  const beforeHotel = a.cash
+  ok('upgrades to hotel', buildOneStep(state, a.id, 'malaysia'))
+  check('hotel cost deducted', beforeHotel - a.cash, COUNTRIES.malaysia.hotelCost)
+  check('level is 4 (hotel)', state.holdings.malaysia.buildings, 4)
+  check('cannot build past hotel', buildOneStep(state, a.id, 'malaysia'), false)
+  check('hotel rent is the printed value', calculateRent(state, 'malaysia').amount, 4600)
+}
+{
+  // Special assets never take buildings.
+  const state = makeState(2)
+  const [a] = state.players
+  give(state, a.id, 'railways')
+  a.cash = 100000
+  check('cannot build on a transport asset', buildOneStep(state, a.id, 'railways'), false)
+}
+
+// ===========================================================================
+console.log('— Mortgage —')
+// ===========================================================================
+
+{
+  const state = makeState(2)
+  const [a] = state.players
+  give(state, a.id, 'india')
+  const before = a.cash
+  ok('mortgages', mortgageProperty(state, a.id, 'india'))
+  check('pays the printed mortgage value', a.cash - before, COUNTRIES.india.mortgage)
+  check('no rent while mortgaged', calculateRent(state, 'india').amount, 0)
+  const beforeLift = a.cash
+  ok('unmortgages', unmortgageProperty(state, a.id, 'india'))
+  check('costs the mortgage value back (0% interest)', beforeLift - a.cash, COUNTRIES.india.mortgage)
+  check('rent restored', calculateRent(state, 'india').amount, 550)
+}
+
+// ===========================================================================
+console.log('— Party House / Resort —')
+// ===========================================================================
+
+{
+  const state = makeState(4)
+  const [a, b, c, d] = state.players
+  const before = a.cash
+  handlePartyHouse(state, a.id)
+  check('lander collects 200 x 3 = 600', a.cash - before, 600)
+  check('each other player paid 200', [b.cash, c.cash, d.cash].map((v) => 25000 - v), [200, 200, 200])
+}
+{
+  const state = makeState(4)
+  const [a, b, c, d] = state.players
+  const before = a.cash
+  handleResort(state, a.id)
+  check('lander pays 200 x 3 = 600', before - a.cash, 600)
+  check('each other player received 200', [b.cash, c.cash, d.cash].map((v) => v - 25000), [200, 200, 200])
+}
+{
+  // Eliminated players are skipped by both.
+  const state = makeState(4)
+  const [a, , c] = state.players
+  c.isOut = true
+  const before = a.cash
+  handlePartyHouse(state, a.id)
+  check('out players do not pay', a.cash - before, 400)
+}
+
+// ===========================================================================
+console.log('— Duties —')
+// ===========================================================================
+
+{
+  const state = makeState(2)
+  const [a] = state.players
+  give(state, a.id, 'egypt', 'iran', 'iraq', 'railways', 'airways', 'satellite')
+  check('special assets are not countries', countCountriesOwned(state, a.id), 3)
+
+  let before = a.cash
+  handleCustomDuty(state, a.id)
+  check('custom duty 3 countries = 300', before - a.cash, 300)
+
+  before = a.cash
+  handleTravellingDuty(state, a.id)
+  check('travelling duty 3 countries = 150', before - a.cash, 150)
+}
+{
+  const state = makeState(2)
+  const [a] = state.players
+  give(state, a.id, ...Object.keys(COUNTRIES)) // all 20
+  a.cash = 100000
+  let before = a.cash
+  handleCustomDuty(state, a.id)
+  check('custom duty caps at 1000', before - a.cash, 1000)
+  before = a.cash
+  handleTravellingDuty(state, a.id)
+  check('travelling duty caps at 500', before - a.cash, 500)
+}
+
+// ===========================================================================
+console.log('— UNO —')
+// ===========================================================================
+
+check('UNO covers totals 2..12', Object.keys(UNO_CARDS).map(Number).sort((x, y) => x - y), [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
+
+{
+  const state = makeState(4)
+  const [a, b] = state.players
+  const before = a.cash
+  handleUno(state, a.id, 2) // Anniversary — 500 from each
+  check('UNO 2 collects 500 from each of 3 players', a.cash - before, 1500)
+  check('each payer is charged 500', 25000 - b.cash, 500)
+}
+{
+  const state = makeState(2)
+  const [a] = state.players
+  const before = a.cash
+  handleUno(state, a.id, 6)
+  check('UNO 6 pays 2000', a.cash - before, 2000)
+}
+{
+  const state = makeState(4)
+  const [a] = state.players
+  a.position = 4 // the first UNO space
+  const before = a.cash
+  handleUno(state, a.id, 8)
+  check('UNO 8 moves to Party House', a.position, PARTY_HOUSE_INDEX)
+  check('UNO 8 collects 200 from each (no START crossed)', a.cash - before, 600)
+}
+{
+  const state = makeState(4)
+  const [a] = state.players
+  a.position = 25 // the second UNO space — Party House is backwards, so START is crossed
+  const before = a.cash
+  handleUno(state, a.id, 8)
+  check('UNO 8 from the far UNO crosses START', a.cash - before, 600 + state.settings.startBonus.amount)
+}
+{
+  const state = makeState(2)
+  const [a] = state.players
+  a.position = 4
+  handleUno(state, a.id, 3)
+  check('UNO 3 sends the player to Jail', a.position, JAIL_INDEX)
+  ok('UNO 3 marks the player jailed', a.inJail)
+}
+{
+  const state = makeState(2)
+  const [a] = state.players
+  const before = a.cash
+  handleUno(state, a.id, 7)
+  check('UNO 7 has no effect (no Passport system)', a.cash - before, 0)
+}
+{
+  const state = makeState(2)
+  const [a] = state.players
+  give(state, a.id, 'egypt', 'iran', 'iraq')
+  state.holdings.egypt.buildings = 3 // 3 houses
+  state.holdings.iran.buildings = 4 // hotel
+  state.holdings.iraq.buildings = 2 // 2 houses
+  const before = a.cash
+  handleUno(state, a.id, 9)
+  // 5 houses x 50 + 1 hotel x 100
+  check('UNO 9 general repairs = 5x50 + 1x100', before - a.cash, 350)
+}
+
+// ===========================================================================
+console.log('— Chance —')
+// ===========================================================================
+
+check('Chance covers totals 2..12', Object.keys(CHANCE_CARDS).map(Number).sort((x, y) => x - y), [2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
+
+{
+  const state = makeState(2)
+  const [a] = state.players
+  const before = a.cash
+  handleChance(state, a.id, 3)
+  check('Chance 3 (odd) pays out 2500', a.cash - before, 2500)
+}
+{
+  const state = makeState(2)
+  const [a] = state.players
+  const before = a.cash
+  handleChance(state, a.id, 8)
+  check('Chance 8 (even) costs 3000', before - a.cash, 3000)
+}
+{
+  const state = makeState(4)
+  const [a] = state.players
+  const before = a.cash
+  handleChance(state, a.id, 7)
+  check('Chance 7 collects 100 from each of 3', a.cash - before, 300)
+}
+{
+  const state = makeState(2)
+  const [a] = state.players
+  a.position = 29
+  handleChance(state, a.id, 10)
+  check('Chance 10 sends the player to Jail', a.position, JAIL_INDEX)
+}
+
+// ===========================================================================
+console.log('— Jail —')
+// ===========================================================================
+
+{
+  const state = makeState(2)
+  const [a] = state.players
+  check('escape needs 12 or more', state.settings.jail.escapeTargetTotal, 12)
+  check('an attempt is 3 rolls of one die', state.settings.jail.escapeDieRolls, 3)
+  check('pay-to-escape costs 500', state.settings.jail.payToEscape, 500)
+
+  a.inJail = true
+  a.position = JAIL_INDEX
+  state.stage = 'inJail'
+  const before = a.cash
+  const next = gameReducer(state, { type: 'JAIL_PAY' })
+  const na = next.players[0]
+  check('paying deducts 500', before - na.cash, 500)
+  check('paying earns release, taking effect next turn', na.jailReleasePending, true)
+  check('the turn is spent in Jail', next.stage, 'awaitingEndTurn')
+}
+{
+  // The whole attempt is three rolls in one turn.
+  const state = makeState(2)
+  const [a] = state.players
+  a.inJail = true
+  a.position = JAIL_INDEX
+  state.stage = 'inJail'
+
+  const attempt = attemptJailEscape(state, a.id)
+  check('three dice are thrown in one turn', attempt.rolls.length, 3)
+  check('the total is the sum of the three', attempt.total, attempt.rolls.reduce((x, y) => x + y, 0))
+  check('release matches the 12 target', attempt.released, attempt.total >= 12)
+  // Either way the player is still shown as jailed for the rest of this turn.
+  check('the player stays on the Jail space this turn', a.inJail, true)
+  check('release is only pending', a.jailReleasePending, attempt.released)
+}
+{
+  // Success frees the player at the START of the next turn, not immediately.
+  let state = makeState(2)
+  const a = state.players[0]
+  a.inJail = true
+  a.position = JAIL_INDEX
+  state.stage = 'inJail'
+  // Force a winning attempt by making every face a 6.
+  const realRandom = Math.random
+  Math.random = () => 0.99
+  state = gameReducer(state, { type: 'JAIL_ROLL' })
+  Math.random = realRandom
+
+  check('a winning roll still ends the turn in Jail', state.players[0].inJail, true)
+  check('release is pending', state.players[0].jailReleasePending, true)
+  check('the turn is over', state.stage, 'awaitingEndTurn')
+
+  // Play round to their next turn.
+  state = gameReducer(state, { type: 'DISMISS_POPUP' })
+  state = gameReducer(state, { type: 'END_TURN' })
+  state = gameReducer(state, { type: 'END_TURN' })
+  check('they walk free on their next turn', state.players[0].inJail, false)
+  check('and may roll and move', state.stage, 'awaitingRoll')
+  check('the pending flag is cleared', state.players[0].jailReleasePending, false)
+}
+{
+  // Paying also frees the player from their NEXT turn.
+  let state = makeState(2)
+  const a = state.players[0]
+  a.inJail = true
+  a.position = JAIL_INDEX
+  state.stage = 'inJail'
+  const before = a.cash
+
+  state = gameReducer(state, { type: 'JAIL_PAY' })
+  check('the fee is taken', before - state.players[0].cash, 500)
+  check('still in Jail for the rest of this turn', state.players[0].inJail, true)
+  check('release is pending', state.players[0].jailReleasePending, true)
+  check('the turn is over', state.stage, 'awaitingEndTurn')
+
+  state = gameReducer(state, { type: 'DISMISS_POPUP' })
+  state = gameReducer(state, { type: 'END_TURN' })
+  state = gameReducer(state, { type: 'END_TURN' })
+  check('free on the next turn', state.players[0].inJail, false)
+  check('and may roll', state.stage, 'awaitingRoll')
+}
+{
+  // A failed attempt leaves them jailed with the same two options next turn.
+  let state = makeState(2)
+  const a = state.players[0]
+  a.inJail = true
+  a.position = JAIL_INDEX
+  state.stage = 'inJail'
+  const realRandom = Math.random
+  Math.random = () => 0 // every face a 1, total 3
+  state = gameReducer(state, { type: 'JAIL_ROLL' })
+  Math.random = realRandom
+
+  check('still jailed', state.players[0].inJail, true)
+  check('no release pending', state.players[0].jailReleasePending, false)
+  check('the turn ends', state.stage, 'awaitingEndTurn')
+
+  state = gameReducer(state, { type: 'DISMISS_POPUP' })
+  state = gameReducer(state, { type: 'END_TURN' })
+  state = gameReducer(state, { type: 'END_TURN' })
+  check('the Jail choice comes round again', state.stage, 'inJail')
+  check('and they are still in Jail', state.players[0].inJail, true)
+}
+{
+  // Going to Jail a third time works exactly the same way.
+  const state = makeState(2)
+  const [a] = state.players
+  for (let visit = 0; visit < 3; visit++) {
+    a.inJail = false
+    a.jailReleasePending = false
+    a.jailRolls = []
+    sendToJail(state, a.id)
+    check(`visit ${visit + 1}: jailed`, a.inJail, true)
+    check(`visit ${visit + 1}: no carry-over rolls`, a.jailRolls, [])
+    check(`visit ${visit + 1}: no carry-over release`, a.jailReleasePending, false)
+  }
+}
+
+// ===========================================================================
+console.log('— Debt, assets and elimination —')
+// ===========================================================================
+
+{
+  // No cash but owns property: stays in the game and carries a debt.
+  const state = makeState(2)
+  const [a, b] = state.players
+  a.cash = 0
+  give(state, a.id, 'usa') // mortgage value 5000
+  const result = charge(state, a.id, [{ toId: b.id, amount: 1000 }], 'rent')
+  check('short player defers rather than paying', result, 'deferred')
+  check('debt recorded', debtOwedBy(state, a.id), 1000)
+  check('player is NOT out', a.isOut, false)
+  ok('not eliminated — assets can cover it', !checkElimination(state, a.id, 1000))
+
+  mortgageProperty(state, a.id, 'usa')
+  const settled = gameReducer(state, { type: 'SETTLE_DEBT' })
+  check('debt clears once funds are raised', debtOwedBy(settled, a.id), 0)
+  check('creditor received the money', settled.players[1].cash, 26000)
+}
+{
+  // Truly nothing left: eliminated.
+  const state = makeState(2)
+  const [a, b] = state.players
+  a.cash = 100
+  const result = charge(state, a.id, [{ toId: b.id, amount: 1000 }], 'rent')
+  check('penniless with no assets goes bankrupt', result, 'bankrupt')
+  check('player is out', a.isOut, true)
+  check('creditor takes what was left', b.cash - 25000, 100)
+}
+{
+  // Assets returning to the Bank on elimination.
+  const state = makeState(2)
+  const [a, b] = state.players
+  a.cash = 0
+  give(state, a.id, 'egypt')
+  state.holdings.egypt.mortgaged = true // nothing left to raise
+  charge(state, a.id, [{ toId: b.id, amount: 50000 }], 'rent')
+  check('holdings return to the Bank', state.holdings.egypt.ownerId, null)
+  check('mortgage cleared with the deed', state.holdings.egypt.mortgaged, false)
+}
+{
+  const state = makeState(2)
+  const [a] = state.players
+  a.cash = 0
+  give(state, a.id, 'usa', 'railways')
+  const assets = calculatePlayerAssets(state, a.id)
+  check('net worth counts property with zero cash', assets.netWorth, 8500 + 9500)
+  check('countries counted separately from assets', [assets.countries, assets.specialAssets], [1, 1])
+  check('liquidatable = mortgage values', assets.liquidatable, 5000 + 5000)
+}
+
+// ===========================================================================
+console.log('— Turn flow —')
+// ===========================================================================
+
+{
+  let state = makeState(3)
+  check('first player is P1 (highest opening roll)', state.players[state.currentIndex].name, 'P1')
+  check('turn number starts at 1', state.turnNumber, 1)
+
+  state = gameReducer(state, { type: 'END_TURN' })
+  check('turn passes clockwise', state.turnOrder[state.currentIndex], 'p2')
+  check('turn number increments', state.turnNumber, 2)
+
+  state.players[2].isOut = true
+  state = gameReducer(state, { type: 'END_TURN' })
+  check('eliminated players are skipped', state.turnOrder[state.currentIndex], 'p1')
+}
+{
+  // Buying, then a visitor paying rent.
+  let state = makeState(2)
+  const a = state.players[0]
+  a.position = 11 // Germany
+  state.stage = 'awaitingPurchase'
+  state.pendingPurchase = { propertyId: 'germany', price: COUNTRIES.germany.price }
+  state = gameReducer(state, { type: 'BUY_PROPERTY' })
+  check('purchase deducts the price', 25000 - state.players[0].cash, 3500)
+  check('ownership assigned', state.holdings.germany.ownerId, 'p1')
+  check('stage moves on after buying', state.stage, 'awaitingEndTurn')
+
+  // Owner lands on their own property: nothing changes hands.
+  const ownerCash = state.players[0].cash
+  handlePropertyLanding(state, 'p1', 'germany')
+  check('landing on your own property costs nothing', state.players[0].cash, ownerCash)
+
+  // Visitor lands on it: rent transfers automatically.
+  const visitorCash = state.players[1].cash
+  state.players[1].position = 11
+  handlePropertyLanding(state, 'p2', 'germany')
+  check('visitor pays the site rent', visitorCash - state.players[1].cash, 400)
+  check('owner receives the rent', state.players[0].cash - ownerCash, 400)
+
+  // Mortgaged property collects nothing from a visitor.
+  state.holdings.germany.mortgaged = true
+  const v2 = state.players[1].cash
+  handlePropertyLanding(state, 'p2', 'germany')
+  check('no rent is collected on a mortgaged property', state.players[1].cash, v2)
+}
+{
+  // Declining leaves the property with the Bank — never auto-auctioned.
+  let state = makeState(2)
+  state.stage = 'awaitingPurchase'
+  state.pendingPurchase = { propertyId: 'japan', price: COUNTRIES.japan.price }
+  state = gameReducer(state, { type: 'DECLINE_PURCHASE' })
+  check('declined property stays unowned', state.holdings.japan.ownerId, null)
+  check('no auction is started', state.pendingPurchase, null)
+  check('cash untouched', state.players[0].cash, 25000)
+}
+
+// ===========================================================================
+console.log('— Layout: START bottom-right, path UP -> LEFT -> DOWN -> RIGHT —')
+// ===========================================================================
+
+check('START sits bottom-right', gridPositionFor(0), { row: 10, col: 10 })
+check('Resort sits top-right', gridPositionFor(9), { row: 1, col: 10 })
+check('Party House sits top-left', gridPositionFor(18), { row: 1, col: 1 })
+check('Jail sits bottom-left', gridPositionFor(27), { row: 10, col: 1 })
+
+check('England (index 1) is one space UP from START', gridPositionFor(1), { row: 9, col: 10 })
+check('index 8 is still climbing the right edge', gridPositionFor(8), { row: 2, col: 10 })
+check('index 10 moves LEFT along the top', gridPositionFor(10), { row: 1, col: 9 })
+check('index 19 starts DOWN the left edge', gridPositionFor(19), { row: 2, col: 1 })
+check('index 28 moves RIGHT along the bottom', gridPositionFor(28), { row: 10, col: 2 })
+check('Singapore (index 35) is just left of START', gridPositionFor(35), { row: 10, col: 9 })
+
+{
+  // Consecutive spaces must always be adjacent cells — one step, no jumps.
+  let contiguous = true
+  for (let i = 0; i < BOARD_SIZE; i++) {
+    const a = gridPositionFor(i)
+    const b = gridPositionFor((i + 1) % BOARD_SIZE)
+    const step = Math.abs(a.row - b.row) + Math.abs(a.col - b.col)
+    if (step !== 1) contiguous = false
+  }
+  ok('the path is one continuous unbroken loop', contiguous)
+
+  // Direction of travel across each edge.
+  const dir = (i: number) => {
+    const a = gridPositionFor(i)
+    const b = gridPositionFor((i + 1) % BOARD_SIZE)
+    if (b.row < a.row) return 'up'
+    if (b.row > a.row) return 'down'
+    if (b.col < a.col) return 'left'
+    return 'right'
+  }
+  check('leaving START the pawn goes UP', dir(0), 'up')
+  check('the right edge is travelled UP', dir(4), 'up')
+  check('the top edge is travelled LEFT', dir(13), 'left')
+  check('the left edge is travelled DOWN', dir(22), 'down')
+  check('the bottom edge is travelled RIGHT', dir(31), 'right')
+}
+
+{
+  // Every space must map to a distinct cell on the ring.
+  const seen = new Set(
+    Array.from({ length: BOARD_SIZE }, (_, i) => {
+      const { row, col } = gridPositionFor(i)
+      return `${row}:${col}`
+    }),
+  )
+  check('all 36 spaces occupy distinct cells', seen.size, 36)
+  const onRing = [...seen].every((key) => {
+    const [row, col] = key.split(':').map(Number)
+    return row === 1 || row === 10 || col === 1 || col === 10
+  })
+  ok('every space sits on the outer ring', onRing)
+}
+
+{
+  // Pawn rectangles must stay inside the board and never overlap.
+  const rects = Array.from({ length: BOARD_SIZE }, (_, i) => cellRectFor(i))
+  const inside = rects.every(
+    (r) => r.left >= -0.001 && r.top >= -0.001 && r.left + r.width <= 100.001 && r.top + r.height <= 100.001,
+  )
+  ok('every cell rect stays inside the board', inside)
+  ok('corners are square', Math.abs(rects[0].width - rects[0].height) < 0.001)
+
+  // A mid-edge space is track-thick on one axis and centre-wide on the other.
+  // The track being the thicker of the two is what makes the country spaces
+  // bigger than a plain 10x10 grid would.
+  const edgeCell = rects[3] // right edge
+  const track = Math.max(edgeCell.width, edgeCell.height)
+  const centre = Math.min(edgeCell.width, edgeCell.height)
+  ok('the playing track is thicker than a centre column', track > centre)
+  ok('the track matches the corner size', Math.abs(track - rects[0].width) < 0.001)
+}
+
+// ===========================================================================
+console.log('— Single die —')
+// ===========================================================================
+
+check('default is one movement die', DEFAULT_SETTINGS.dice.count, 1)
+
+{
+  const results = new Set<number>()
+  for (let i = 0; i < 4000; i++) results.add(diceTotal(rollDice(1, 6)))
+  check('one die produces totals 1..6', [...results].sort((a, b) => a - b), [1, 2, 3, 4, 5, 6])
+}
+{
+  const results = new Set<number>()
+  for (let i = 0; i < 200; i++) results.add(rollDice(2, 6).length)
+  check('two dice still supported', [...results], [2])
+}
+
+{
+  // The printed decks start at 2, so a total of 1 has no card and must not
+  // invent one. No money may move.
+  const state = makeState(3)
+  const [a, b] = state.players
+  const before = [a.cash, b.cash]
+  handleUno(state, a.id, 1)
+  handleChance(state, a.id, 1)
+  check('UNO/Chance total of 1 moves no money', [a.cash, b.cash], before)
+  ok('a "no card" popup is still shown', state.popups.length > 0)
+}
+
+// ===========================================================================
+console.log('— Automatic turn end —')
+// ===========================================================================
+
+check('auto-end is on by default', DEFAULT_SETTINGS.turn.autoEnd, true)
+
+{
+  // Every unowned space is offered with its price, affordable or not.
+  let state = makeState(2)
+  const a = state.players[0]
+  a.cash = 100
+  a.position = 14 // six spaces short of USA at $8,500
+  state.stage = 'moving'
+  state.pendingMove = { from: 14, to: 20, steps: 6, teleport: false }
+  state.lastTotal = 6
+  state = gameReducer(state, { type: 'COMPLETE_MOVE' })
+  check('the offer is shown even with $100 in hand', state.stage, 'awaitingPurchase')
+  check('and it names the property', state.pendingPurchase!.propertyId, 'usa')
+  check('and quotes the printed price', state.pendingPurchase!.price, COUNTRIES.usa.price)
+
+  // Trying to buy it anyway must not go through.
+  const attempted = gameReducer(state, { type: 'BUY_PROPERTY' })
+  check('buying beyond your cash is refused', attempted.holdings.usa.ownerId, null)
+  check('and no cash is taken', attempted.players[0].cash, 100)
+
+  state = gameReducer(state, { type: 'DECLINE_PURCHASE' })
+  check('declining frees the turn', state.stage, 'awaitingEndTurn')
+  check('USA stays with the Bank', state.holdings.usa.ownerId, null)
+}
+{
+  // Landing on an unowned space always raises the offer, whatever the cash.
+  const missed: string[] = []
+  for (const space of BOARD.filter((sp) => sp.kind === 'country' || sp.kind === 'special')) {
+    for (const cash of [0, 100, 2000, 100000]) {
+      let st = makeState(2)
+      st.players[0].cash = cash
+      st.players[0].position = space.index - 1
+      st.stage = 'moving'
+      st.pendingMove = { from: space.index - 1, to: space.index, steps: 1, teleport: false }
+      st.lastTotal = 1
+      st = gameReducer(st, { type: 'COMPLETE_MOVE' })
+      if (st.stage !== 'awaitingPurchase') missed.push(`${space.propertyId}@${cash}`)
+    }
+  }
+  check('every unowned space offers itself at every cash level', missed, [])
+}
+{
+  // Affordable: the decision is held open until the player answers.
+  let state = makeState(2)
+  const a = state.players[0]
+  a.position = 14
+  state.stage = 'moving'
+  state.pendingMove = { from: 14, to: 20, steps: 6, teleport: false }
+  state.lastTotal = 6
+  state = gameReducer(state, { type: 'COMPLETE_MOVE' })
+  check('affordable purchase waits for an answer', state.stage, 'awaitingPurchase')
+  state = gameReducer(state, { type: 'DECLINE_PURCHASE' })
+  check('answering frees the turn to end', state.stage, 'awaitingEndTurn')
+}
+
+// ===========================================================================
+console.log('— Pause on next turn —')
+// ===========================================================================
+
+{
+  let state = makeState(3)
+  state = gameReducer(state, { type: 'REQUEST_PAUSE' })
+  check('pause is armed, not immediate', [state.pauseRequested, state.paused], [true, false])
+
+  state = gameReducer(state, { type: 'END_TURN' })
+  check('pause takes effect on the next turn', state.paused, true)
+  check('the request is cleared once used', state.pauseRequested, false)
+
+  const blocked = gameReducer(state, { type: 'ROLL_DICE' })
+  check('rolling is blocked while paused', blocked.dice, null)
+
+  state = gameReducer(state, { type: 'RESUME' })
+  check('resuming unpauses', state.paused, false)
+}
+{
+  let state = makeState(2)
+  state = gameReducer(state, { type: 'REQUEST_PAUSE' })
+  state = gameReducer(state, { type: 'CANCEL_PAUSE' })
+  check('an armed pause can be cancelled', state.pauseRequested, false)
+}
+
+// ===========================================================================
+console.log('— Game timer —')
+// ===========================================================================
+
+{
+  let state = makeState(3)
+  state = gameReducer(state, { type: 'SET_TIMER', durationMs: 600000 })
+  check('timer duration recorded', state.timer.durationMs, 600000)
+  ok('a deadline is running', state.timer.endsAt !== null)
+
+  // Give one player a clear lead on total wealth.
+  state.holdings.usa.ownerId = state.players[1].id
+  state.holdings.airways.ownerId = state.players[1].id
+
+  state = gameReducer(state, { type: 'TIME_UP' })
+  check('time up ends the game', state.phase, 'timeUp')
+  check('winner on time is the wealthiest', state.winnerId, state.players[1].id)
+
+  const resumed = gameReducer(state, { type: 'RESUME_WITHOUT_TIMER' })
+  check('resume returns to play', resumed.phase, 'playing')
+  check('resume clears the timer', resumed.timer, {
+    durationMs: null,
+    endsAt: null,
+    remainingMs: null,
+  })
+  check('resume keeps the board state', resumed.holdings.usa.ownerId, state.players[1].id)
+
+  const home = gameReducer(state, { type: 'RESET' })
+  check('good game returns to the home screen', home.phase, 'setup')
+}
+{
+  // Pausing freezes the clock instead of letting it run down.
+  let state = makeState(2)
+  state = gameReducer(state, { type: 'SET_TIMER', durationMs: 300000 })
+  state = gameReducer(state, { type: 'REQUEST_PAUSE' })
+  state = gameReducer(state, { type: 'END_TURN' })
+  ok('paused clock is frozen', state.timer.endsAt === null && state.timer.remainingMs !== null)
+  state = gameReducer(state, { type: 'RESUME' })
+  ok('resuming restarts the clock', state.timer.endsAt !== null)
+}
+
+// ===========================================================================
+console.log('— UNO / Chance polarity on a single die (totals 1-6) —')
+// ===========================================================================
+
+/** Net cash change for the lander, plus what each other player paid. */
+function cardEffect(deck: 'UNO' | 'CHANCE', total: number) {
+  const state = makeState(3)
+  const [a, b, c] = state.players
+  const before = a.cash
+  if (deck === 'UNO') handleUno(state, a.id, total)
+  else handleChance(state, a.id, total)
+  return {
+    lander: a.cash - before,
+    others: [25000 - b.cash, 25000 - c.cash],
+    jailed: a.inJail,
+  }
+}
+
+// UNO: ODD = LOSS, EVEN = PROFIT
+check('UNO 3 (odd) sends the player to jail', cardEffect('UNO', 3).jailed, true)
+check('UNO 5 (odd) pays 2500 to the bank', cardEffect('UNO', 5).lander, -2500)
+check('UNO 2 (even) collects 500 from each player', cardEffect('UNO', 2), {
+  lander: 1000,
+  others: [500, 500],
+  jailed: false,
+})
+check('UNO 4 (even) collects 2500 from the bank', cardEffect('UNO', 4).lander, 2500)
+check('UNO 6 (even) collects 2000 from the bank', cardEffect('UNO', 6).lander, 2000)
+
+// CHANCE: ODD = PROFIT, EVEN = LOSS — the opposite of UNO
+check('CHANCE 3 (odd) collects 2500 from the bank', cardEffect('CHANCE', 3).lander, 2500)
+check('CHANCE 5 (odd) collects 1000 from the bank', cardEffect('CHANCE', 5).lander, 1000)
+check('CHANCE 2 (even) pays 2000 to the bank', cardEffect('CHANCE', 2).lander, -2000)
+check('CHANCE 4 (even) pays 1000 to the bank', cardEffect('CHANCE', 4).lander, -1000)
+check('CHANCE 6 (even) pays 1500 to the bank', cardEffect('CHANCE', 6).lander, -1500)
+
+{
+  // The polarities must be genuine opposites across every reachable total.
+  const sign = (n: number) => (n > 0 ? 1 : n < 0 ? -1 : 0)
+  const unoEvenProfit = [2, 4, 6].every((t) => sign(cardEffect('UNO', t).lander) > 0)
+  const unoOddLoss = [5].every((t) => sign(cardEffect('UNO', t).lander) < 0)
+  const chanceOddProfit = [3, 5].every((t) => sign(cardEffect('CHANCE', t).lander) > 0)
+  const chanceEvenLoss = [2, 4, 6].every((t) => sign(cardEffect('CHANCE', t).lander) < 0)
+  ok('UNO even = profit', unoEvenProfit)
+  ok('UNO odd = loss', unoOddLoss)
+  ok('CHANCE odd = profit', chanceOddProfit)
+  ok('CHANCE even = loss', chanceEvenLoss)
+}
+
+// ===========================================================================
+console.log('— Landing on your own country offers a build —')
+// ===========================================================================
+
+{
+  const state = makeState(2)
+  const [a] = state.players
+  give(state, a.id, 'egypt', 'iran', 'iraq') // complete green group
+  a.position = 8
+  handlePropertyLanding(state, a.id, 'egypt')
+
+  check('a build offer is raised', state.pendingBuild, { propertyId: 'egypt' })
+  check('the stage waits for the decision', state.stage, 'awaitingBuild')
+  check('no "no rent" popup is shown', state.popups.length, 0)
+
+  const check1 = canBuild(state, a.id, 'egypt')
+  ok('building is allowed with the colour group', check1.allowed)
+  check('the offer names the house cost', check1.cost, COUNTRIES.egypt.houseCost)
+}
+{
+  // Landing on your own country always opens the offer, group or no group.
+  const state = makeState(2)
+  const [a] = state.players
+  give(state, a.id, 'malaysia') // one lone green card
+  a.cash = 100000
+  a.position = 34
+  handlePropertyLanding(state, a.id, 'malaysia')
+  check('offer raised on a lone card', state.pendingBuild, { propertyId: 'malaysia' })
+  ok('and the build is allowed', canBuild(state, a.id, 'malaysia').allowed)
+  check(
+    'the offer quotes the printed House Cost',
+    canBuild(state, a.id, 'malaysia').cost,
+    COUNTRIES.malaysia.houseCost,
+  )
+}
+{
+  // Taking the offer builds and ends the turn.
+  let state = makeState(2)
+  const a = state.players[0]
+  give(state, a.id, 'egypt', 'iran', 'iraq')
+  a.cash = 50000
+  a.position = 8
+  handlePropertyLanding(state, a.id, 'egypt')
+  state = gameReducer(state, { type: 'BUILD', propertyId: 'egypt' })
+  check('the house is built', state.holdings.egypt.buildings, 1)
+  check('the offer is cleared', state.pendingBuild, null)
+  check('the turn is free to end', state.stage, 'awaitingEndTurn')
+}
+{
+  // Declining also ends the turn, and builds nothing.
+  let state = makeState(2)
+  const a = state.players[0]
+  give(state, a.id, 'egypt', 'iran', 'iraq')
+  a.position = 8
+  handlePropertyLanding(state, a.id, 'egypt')
+  state = gameReducer(state, { type: 'DECLINE_BUILD' })
+  check('nothing was built', state.holdings.egypt.buildings, 0)
+  check('the turn is free to end', state.stage, 'awaitingEndTurn')
+}
+{
+  // Special assets are not countries: no build offer, no buildings.
+  const state = makeState(2)
+  const [a] = state.players
+  give(state, a.id, 'railways')
+  handlePropertyLanding(state, a.id, 'railways')
+  check('no build offer on a transport asset', state.pendingBuild, null)
+  ok('an informational card is shown instead', state.popups.length > 0)
+}
+
+// ===========================================================================
+console.log('— Everything purchasable can actually be bought —')
+// ===========================================================================
+
+{
+  const purchasable = BOARD.filter((sp) => sp.kind === 'country' || sp.kind === 'special')
+  check('26 purchasable spaces on the board', purchasable.length, 26)
+
+  const notOffered: string[] = []
+  const notBought: string[] = []
+
+  for (const space of purchasable) {
+    let state = makeState(2)
+    const a = state.players[0]
+    a.cash = 100000 // enough for anything, including Airways at 10,500
+    // COMPLETE_MOVE advances from the current position, so start one back.
+    a.position = space.index - 1
+    state.stage = 'moving'
+    state.pendingMove = { from: a.position, to: space.index, steps: 1, teleport: false }
+    state.lastTotal = 1
+    state = gameReducer(state, { type: 'COMPLETE_MOVE' })
+
+    if (state.stage !== 'awaitingPurchase') {
+      notOffered.push(space.propertyId!)
+      continue
+    }
+    state = gameReducer(state, { type: 'BUY_PROPERTY' })
+    if (state.holdings[space.propertyId!].ownerId !== a.id) notBought.push(space.propertyId!)
+  }
+
+  check('every purchasable space offers itself when landed on', notOffered, [])
+  check('every purchasable space can be bought', notBought, [])
+}
+{
+  // The six transport / utility assets specifically.
+  const assets = ['satellite', 'waterways', 'roadways', 'railways', 'petroleum', 'airways']
+  const blocked = assets.filter((id) => {
+    let state = makeState(2)
+    const a = state.players[0]
+    a.cash = 100000
+    const target = BOARD.findIndex((sp) => sp.propertyId === id)
+    a.position = target - 1
+    state.stage = 'moving'
+    state.pendingMove = { from: a.position, to: target, steps: 1, teleport: false }
+    state.lastTotal = 1
+    state = gameReducer(state, { type: 'COMPLETE_MOVE' })
+    state = gameReducer(state, { type: 'BUY_PROPERTY' })
+    return state.holdings[id].ownerId !== a.id
+  })
+  check('Satellite, Waterways, Airways, Roadways, Railways, Petroleum all buyable', blocked, [])
+}
+
+// ===========================================================================
+console.log('— Randomness and reachability —')
+// ===========================================================================
+
+{
+  // A fair die: 200k rolls should sit within 2% of an even sixth each.
+  const counts = new Array(7).fill(0)
+  const N = 200000
+  for (let i = 0; i < N; i++) counts[rollDice(1, 6)[0]]++
+  const expected = N / 6
+  const worstDrift = Math.max(
+    ...[1, 2, 3, 4, 5, 6].map((f) => Math.abs(counts[f] - expected) / expected),
+  )
+  ok(`die faces are uniform (worst drift ${(worstDrift * 100).toFixed(2)}%)`, worstDrift < 0.02)
+  ok('every face appears', [1, 2, 3, 4, 5, 6].every((f) => counts[f] > 0))
+}
+{
+  // Walking the board with real rolls must reach every space, Jail and Party
+  // House included — nothing is skippable when moving one step at a time.
+  const visits = new Array(BOARD_SIZE).fill(0)
+  let pos = 0
+  for (let i = 0; i < 300000; i++) {
+    pos = (pos + rollDice(1, 6)[0]) % BOARD_SIZE
+    visits[pos]++
+  }
+  const unreached = visits.map((v, i) => (v === 0 ? i : -1)).filter((i) => i >= 0)
+  check('every one of the 36 spaces is landed on', unreached, [])
+  ok('Jail is reached', visits[JAIL_INDEX] > 0)
+  ok('Party House is reached', visits[PARTY_HOUSE_INDEX] > 0)
+
+  // With one die every space should be hit at roughly the same rate.
+  const mean = visits.reduce((a, b) => a + b, 0) / BOARD_SIZE
+  const worst = Math.max(...visits.map((v) => Math.abs(v - mean) / mean))
+  ok(`landings are evenly spread (worst drift ${(worst * 100).toFixed(2)}%)`, worst < 0.06)
+}
+
+// ===========================================================================
+console.log('— Rolls through the real reducer are unbiased —')
+// ===========================================================================
+
+{
+  // The die is tested above in isolation; this drives ROLL_DICE the way the
+  // UI does, so a bias introduced by the reducer would be caught too.
+  const base = makeState(2)
+  const counts: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 }
+  const N = 60000
+  let prev = -1
+  let repeats = 0
+  for (let i = 0; i < N; i++) {
+    const rolled = gameReducer(base, { type: 'ROLL_DICE' })
+    const v = rolled.lastTotal!
+    counts[v]++
+    if (v === prev) repeats++
+    prev = v
+  }
+  const expected = N / 6
+  const drift = Math.max(...[1, 2, 3, 4, 5, 6].map((f) => Math.abs(counts[f] - expected) / expected))
+  ok(`reducer rolls are uniform (worst drift ${(drift * 100).toFixed(2)}%)`, drift < 0.03)
+  ok('every face is produced', [1, 2, 3, 4, 5, 6].every((f) => counts[f] > 0))
+
+  // A stuck or sticky die would show up as far too many repeats.
+  const repeatRate = repeats / N
+  ok(
+    `consecutive repeats near 1-in-6 (${(repeatRate * 100).toFixed(1)}%)`,
+    repeatRate > 0.13 && repeatRate < 0.21,
+  )
+
+  // The pawn must be sent exactly as far as the die shows.
+  const oneRoll = gameReducer(base, { type: 'ROLL_DICE' })
+  check('the move matches the rolled number', oneRoll.pendingMove!.steps, oneRoll.lastTotal)
+  check('the die shown is the die rolled', diceTotal(oneRoll.dice!), oneRoll.lastTotal)
+}
+
+// ===========================================================================
+console.log('— End game, remove player, transfers, game code —')
+// ===========================================================================
+
+{
+  // The host can end the game at any point; standings decide the winner.
+  let state = makeState(3)
+  state.players[0].cash = 1000
+  state.players[1].cash = 40000
+  state.players[2].cash = 500
+  state = gameReducer(state, { type: 'END_GAME' })
+  check('the game is over', state.phase, 'ended')
+  check('the richest player wins', state.winnerId, 'p2')
+  check('no popup is left hanging', state.popups.length, 0)
+
+  const rows = leaderboard(state)
+  check('every player is ranked', rows.length, 3)
+  check('cash is reported per player', rows.map((r) => r.assets.cash), [40000, 1000, 500])
+  ok('total assets are reported', rows.every((r) => typeof r.assets.netWorth === 'number'))
+}
+{
+  // Removing a player hands their board back to the Bank.
+  let state = makeState(3)
+  give(state, 'p2', 'egypt', 'railways')
+  state.holdings.egypt.buildings = 2
+  state.holdings.railways.mortgaged = true
+
+  state = gameReducer(state, { type: 'REMOVE_PLAYER', playerId: 'p2' })
+  check('the player is out', state.players[1].isOut, true)
+  check('their country returns to the Bank', state.holdings.egypt.ownerId, null)
+  check('buildings are cleared', state.holdings.egypt.buildings, 0)
+  check('their asset returns to the Bank', state.holdings.railways.ownerId, null)
+  check('the mortgage is lifted with it', state.holdings.railways.mortgaged, false)
+  check('the game carries on', state.phase, 'playing')
+  check('turn order skips them', state.players.filter((p) => !p.isOut).length, 2)
+}
+{
+  // Removing the current player passes the turn on.
+  let state = makeState(3)
+  const current = state.turnOrder[state.currentIndex]
+  state = gameReducer(state, { type: 'REMOVE_PLAYER', playerId: current })
+  ok('the turn moved to someone else', state.turnOrder[state.currentIndex] !== current)
+  ok('and they are still in the game', !state.players.find((p) => p.id === state.turnOrder[state.currentIndex])!.isOut)
+}
+{
+  // Down to one player, removal ends the game.
+  let state = makeState(2)
+  state = gameReducer(state, { type: 'REMOVE_PLAYER', playerId: 'p2' })
+  check('one player left ends it', state.phase, 'gameOver')
+  check('the survivor wins', state.winnerId, 'p1')
+}
+{
+  // Rent raises a "A -> $x -> B" card.
+  const state = makeState(2)
+  give(state, 'p2', 'germany')
+  state.players[0].position = 11
+  handlePropertyLanding(state, 'p1', 'germany')
+  const transfer = state.popups.find((pop) => pop.body.kind === 'transfer')
+  ok('a transfer card is queued', !!transfer)
+  if (transfer && transfer.body.kind === 'transfer') {
+    check('one leg', transfer.body.legs.length, 1)
+    check('from the visitor to the owner', [transfer.body.legs[0].fromId, transfer.body.legs[0].toId], ['p1', 'p2'])
+    check('for the site rent', transfer.body.legs[0].amount, 400)
+  }
+}
+{
+  // Party House raises one card listing every payer.
+  const state = makeState(4)
+  handlePartyHouse(state, 'p1')
+  const transfer = state.popups.find((pop) => pop.body.kind === 'transfer')
+  ok('a transfer card is queued', !!transfer)
+  if (transfer && transfer.body.kind === 'transfer') {
+    check('three legs, one per payer', transfer.body.legs.length, 3)
+    ok('all paid to the lander', transfer.body.legs.every((l) => l.toId === 'p1'))
+    ok('each leg is $200', transfer.body.legs.every((l) => l.amount === 200))
+  }
+}
+{
+  // Bank payments are NOT announced as player-to-player transfers.
+  const state = makeState(2)
+  give(state, 'p1', 'egypt', 'iran', 'iraq')
+  handleCustomDuty(state, 'p1')
+  check('a duty raises no transfer card', state.popups.filter((pop) => pop.body.kind === 'transfer').length, 0)
+}
+{
+  // Every game gets a distinct, readable code.
+  const codes = new Set(Array.from({ length: 400 }, () => makeGameCode()))
+  ok('codes are 6 characters', [...codes].every((c) => c.length === 6))
+  ok('no easily confused characters', [...codes].every((c) => !/[IO01]/.test(c)))
+  ok('codes vary', codes.size > 380)
+  ok('a fresh game carries one', /^[A-Z2-9]{6}$/.test(createInitialState().gameCode))
+}
+
+// ===========================================================================
+
+console.log('')
+if (failures.length) {
+  console.log(`❌ ${failures.length} failed, ${passed} passed\n`)
+  for (const f of failures) console.log('  ' + f + '\n')
+  process.exit(1)
+} else {
+  console.log(`✅ all ${passed} rule checks passed\n`)
+}
