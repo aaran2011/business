@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { PLAYER_COLOURS } from '../data/playerColours'
 import { money } from '../engine/log'
+import { multiplayerSetupHint } from '../net/supabase'
 import type { Session } from '../net/useSession'
 
 /**
@@ -110,6 +111,7 @@ export function SetupScreen({
         <p>
           {minPlayers}–{maxPlayers} players · {money(startingCash)} each
         </p>
+        {!session.multiplayerAvailable && <p className="hero-note">{multiplayerSetupHint()}</p>}
       </div>
 
       <div className="panel">
@@ -196,18 +198,27 @@ export function SetupScreen({
               <button className="btn" onClick={addLocalPlayer} disabled={full}>
                 Add player on this phone
               </button>
-              <button
-                className="btn"
-                onClick={() => {
-                  session.startHosting()
-                  setShowCode(true)
-                }}
-              >
-                Get the code
-              </button>
-              <button className="btn" onClick={onJoinInstead}>
-                Put Code — join a game
-              </button>
+              {/*
+                With no game server there is nothing behind these two, so they
+                are not offered — a button that only ever produces an apology
+                is worse than no button. Everybody can still play on one phone.
+              */}
+              {session.multiplayerAvailable && (
+                <>
+                  <button
+                    className="btn"
+                    onClick={() => {
+                      session.startHosting()
+                      setShowCode(true)
+                    }}
+                  >
+                    Get the code
+                  </button>
+                  <button className="btn" onClick={onJoinInstead}>
+                    Put Code — join a game
+                  </button>
+                </>
+              )}
               <button
                 className="btn btn-primary"
                 style={{ marginLeft: 'auto' }}

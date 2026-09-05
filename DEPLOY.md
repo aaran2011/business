@@ -54,7 +54,7 @@ Then run the push again.
 | Build Command | `npm run build` |
 | Output Directory | `dist` |
 | Install Command | `npm install` |
-| Environment variables | none — the game needs no keys |
+| Environment variables | none — the game server address is checked in |
 
 **2d.** Press **Deploy**. About a minute later you have a URL like
 `https://business-xyz.vercel.app`.
@@ -71,7 +71,7 @@ is no second setup step and nothing to renew.
 npm run ship
 ```
 
-`scripts/ship.sh` runs the typecheck, the 303 rule assertions and a real
+`scripts/ship.sh` runs the typecheck, the rule assertions and a real
 production build, and **refuses to push if any of them fail**. Only then does it
 commit everything and push. Vercel sees the push and rebuilds.
 
@@ -102,3 +102,37 @@ That is instant and needs no code change.
 - **This folder is its own git repository**, nested inside `claude files`, which
   ignores it. Same arrangement as `rizz/`. Committing here never touches the
   Instagram planner repo.
+
+---
+
+## The game server
+
+Playing across phones goes through Supabase Realtime. Its address lives in
+`src/net/gameServer.ts`, checked into the repo, so a fresh clone or a fresh
+deploy can host a game with nothing to configure.
+
+That is deliberate, not an oversight. A Supabase publishable key is public by
+design — it is compiled into the browser bundle of every Supabase site, so
+checking it in exposes nothing that deploying the site would not. Nothing rests
+on it being secret either: the game uses Realtime Broadcast only, which relays
+messages between the phones in one game. There are no tables behind it, so
+there is no data for a key holder to read or write.
+
+To point at a different project, either edit those two values or set
+`VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` — an environment variable wins
+over the checked-in value.
+
+Setting up a project from scratch takes about two minutes:
+
+1. [supabase.com/dashboard](https://supabase.com/dashboard) → **New project**
+   (the free tier is plenty). Any region, any database password — the game
+   never uses the database.
+2. **Project Settings → API Keys.**
+3. Copy the **Project URL** and the **publishable** (anon) key into
+   `src/net/gameServer.ts`.
+
+Never put the `service_role` / secret key anywhere near this repo. It is not
+needed, and unlike the publishable key it does bypass every protection.
+
+With no server configured the game still runs — everybody plays on one phone,
+and the join buttons are simply not offered.

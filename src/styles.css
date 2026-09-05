@@ -2609,3 +2609,16 @@ button:disabled {
   border-radius: 999px;
   padding: 4px 10px;
 }
+
+/* Explains a missing game server where the join buttons would have been. */
+.hero-note {
+  max-width: 34em;
+  margin: 10px auto 0;
+  padding: 10px 14px;
+  border-radius: 12px;
+  background: var(--panel-alt);
+  border: 1px solid var(--line-soft);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--text-dim);
+}
