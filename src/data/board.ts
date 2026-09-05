@@ -121,32 +121,82 @@ const SIDE = 10
  */
 export const TRACK_RATIO = 2.5
 
-const AXIS_TOTAL = TRACK_RATIO * 2 + (SIDE - 2)
+/**
+ * On a phone the board stops being square, and the two axes stop sharing a
+ * ratio.
+ *
+ * The trade-off is worth spelling out, because it is not obvious. Thickening
+ * the ring on an axis makes the spaces on the OPPOSITE edges deeper, but the
+ * eight spaces running ALONG that axis narrower — they share whatever is left.
+ * A phone is tall and thin, so:
+ *
+ *   x (columns) stays modest — the eight countries along the top and bottom
+ *   edges have only ~360px of width to share, and must not get any thinner.
+ *
+ *   y (rows) goes THINNER, which is the counter-intuitive half. The top and
+ *   bottom spaces are limited by their width, not their height — no amount of
+ *   extra depth lets "Canada" fit across 29px — so height spent on them is
+ *   wasted. Giving it to the eight middle rows instead is what stops the left
+ *   and right countries from clipping their flag and price.
+ *
+ * Together with a taller-than-wide board this gives every space about 55px of
+ * height, which is what the flag, name, price and token strip actually need.
+ */
+export const TRACK_RATIO_MOBILE = { x: 1.9, y: 1.6 }
 
-export const BOARD_GRID_TEMPLATE = `${TRACK_RATIO}fr repeat(${SIDE - 2}, 1fr) ${TRACK_RATIO}fr`
+/** A square board uses the same ratio on both axes. */
+export const TRACK_RATIO_SQUARE = { x: TRACK_RATIO, y: TRACK_RATIO }
 
-/** Start and size of one grid track, as a fraction of the board. */
-function axisSpan(position: number): { start: number; size: number } {
-  if (position === 1) return { start: 0, size: TRACK_RATIO / AXIS_TOTAL }
+export interface TrackRatio {
+  x: number
+  y: number
+}
+
+const axisTotal = (ratio: number) => ratio * 2 + (SIDE - 2)
+
+export function boardGridColumns(ratio: TrackRatio): string {
+  return `${ratio.x}fr repeat(${SIDE - 2}, 1fr) ${ratio.x}fr`
+}
+
+export function boardGridRows(ratio: TrackRatio): string {
+  return `${ratio.y}fr repeat(${SIDE - 2}, 1fr) ${ratio.y}fr`
+}
+
+export const BOARD_GRID_TEMPLATE = boardGridColumns(TRACK_RATIO_SQUARE)
+
+/**
+ * Start and size of one grid track, as a fraction of the board.
+ *
+ * Pawn placement and the CSS grid are both derived from the SAME ratio, which
+ * is what keeps a token exactly inside the space it belongs to. Pass the ratio
+ * in rather than reading a constant, so the two cannot drift when the phone
+ * layout uses a different one.
+ */
+function axisSpan(position: number, ratio: number): { start: number; size: number } {
+  const total = axisTotal(ratio)
+  if (position === 1) return { start: 0, size: ratio / total }
   if (position === SIDE) {
-    return { start: (TRACK_RATIO + SIDE - 2) / AXIS_TOTAL, size: TRACK_RATIO / AXIS_TOTAL }
+    return { start: (ratio + SIDE - 2) / total, size: ratio / total }
   }
-  return { start: (TRACK_RATIO + position - 2) / AXIS_TOTAL, size: 1 / AXIS_TOTAL }
+  return { start: (ratio + position - 2) / total, size: 1 / total }
 }
 
 /**
  * Where a space sits on the board as percentages, so pawns can be positioned
  * over the grid without assuming every cell is the same size.
  */
-export function cellRectFor(index: number): {
+export function cellRectFor(
+  index: number,
+  ratio: TrackRatio = TRACK_RATIO_SQUARE,
+): {
   left: number
   top: number
   width: number
   height: number
 } {
   const { row, col } = gridPositionFor(index)
-  const x = axisSpan(col)
-  const y = axisSpan(row)
+  const x = axisSpan(col, ratio.x)
+  const y = axisSpan(row, ratio.y)
   return {
     left: x.start * 100,
     top: y.start * 100,

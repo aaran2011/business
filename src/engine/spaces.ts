@@ -11,7 +11,7 @@ import { CHANCE_CARDS } from '../data/chanceCards'
 import { COUNTRIES } from '../data/properties'
 import { SPECIAL_ASSETS } from '../data/specialAssets'
 import { UNO_CARDS, type EventCard } from '../data/unoCards'
-import { addLog, money, moneySentence, setPopup } from './log'
+import { addLog, money, moneySentence, notify, setPopup } from './log'
 import { moveDirectlyTo } from './movement'
 import { announceTransfer, charge, credit, transferMoney } from './payments'
 import {
@@ -37,6 +37,10 @@ export function resolveLanding(state: GameState, playerId: string, total: number
   if (!space) return
 
   addLog(state, 'move', `${player.name} moved to ${space.label}.`)
+  // The plain "landed on" line goes out first. Anything more interesting that
+  // happens on this space — a purchase, rent, a card, Jail — replaces it, so
+  // the other phones only ever see the most specific thing that occurred.
+  notify(state, playerId, `${player.name} landed on ${space.label}.`)
 
   switch (space.kind) {
     case 'start':
@@ -147,6 +151,11 @@ export function handlePropertyLanding(
       playerId,
       moneySentence(player.name, -rent.amount, `rent on ${name} to ${owner.name}`),
     )
+    notify(
+      state,
+      playerId,
+      `${player.name} paid ${owner.name} ${money(rent.amount)} rent for ${name}.`,
+    )
   }
 }
 
@@ -167,6 +176,9 @@ export function buyProperty(state: GameState, playerId: string, propertyId: stri
     'property',
     `${player.name} purchased ${displayNameOf(propertyId)} for ${money(price)}.`,
   )
+  // The other phones are told WHAT was bought, never for how much and never
+  // the card itself. That is the buyer's business.
+  notify(state, playerId, `${player.name} bought ${displayNameOf(propertyId)}.`)
   return true
 }
 
@@ -311,12 +323,9 @@ function applyCard(
     }
   }
 
-  setPopup(
-    state,
-    { kind: 'card', deck, card, total, delta },
-    playerId,
-    moneySentence(player.name, delta ?? 0, card.title),
-  )
+  const sentence = moneySentence(player.name, delta ?? 0, card.title)
+  setPopup(state, { kind: 'card', deck, card, total, delta }, playerId, sentence)
+  notify(state, playerId, sentence)
   announceTransfer(state, card.title.toUpperCase(), transferLegs, transferNote)
 }
 
@@ -480,13 +489,9 @@ function applyDuty(
 function handleJailLanding(state: GameState, playerId: string): void {
   const player = getPlayer(state, playerId)
   if (state.settings.jail.landingOnJailIsJustVisiting) {
+    // Nothing happens, so nothing interrupts the turn. A card saying "no
+    // penalty" is a card about nothing.
     addLog(state, 'jail', `${player.name} is just visiting Jail.`)
-    setPopup(state, {
-      kind: 'simple',
-      icon: '\u{1F46E}',
-      title: 'JAIL',
-      subtitle: 'Just visiting — no penalty.',
-    })
     return
   }
   sendToJail(state, playerId)
@@ -496,6 +501,8 @@ export function sendToJail(state: GameState, playerId: string): void {
   const player = getPlayer(state, playerId)
   moveDirectlyTo(state, playerId, JAIL_INDEX, state.settings.startBonus.awardOnForcedMoveToJail)
   player.inJail = true
+  player.jailReleasePending = false
   player.jailRolls = []
   addLog(state, 'jail', `${player.name} was sent to Jail.`)
+  notify(state, playerId, `${player.name} went to Jail.`)
 }

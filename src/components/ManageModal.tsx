@@ -14,10 +14,13 @@ export function ManageModal({
   state,
   dispatch,
   onClose,
+  onBuild,
 }: {
   state: GameState
   dispatch: (action: GameAction) => void
   onClose: () => void
+  /** Building goes through here so the colour-group warning cannot be skipped. */
+  onBuild: (propertyId: string) => void
 }) {
   const playerId = state.turnOrder[state.currentIndex]
   const player = state.players.find((p) => p.id === playerId)!
@@ -87,7 +90,7 @@ export function ManageModal({
                         className="btn btn-sm btn-good"
                         disabled={!build.allowed}
                         title={build.reason}
-                        onClick={() => dispatch({ type: 'BUILD', propertyId: id })}
+                        onClick={() => onBuild(id)}
                       >
                         Build {build.nextLabel || '—'}
                         {build.cost ? ` (${money(build.cost)})` : ''}

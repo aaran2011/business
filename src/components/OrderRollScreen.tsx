@@ -1,11 +1,15 @@
-import { orderRollComplete } from '../engine/game'
+import { orderRollComplete, orderRollTurn } from '../engine/game'
 import type { GameAction, GameState } from '../engine/types'
 import { DiceTray } from './Dice'
 
 /**
- * Every player takes their own opening roll, on their own device. Highest
- * total starts; turns then run clockwise through the seating order. A tie is
- * re-rolled between the tied players.
+ * Every player takes their own opening roll, on their own device, ONE AT A
+ * TIME in seating order — Player 1, then 2, then 3. Exactly one device shows
+ * a Roll button at any moment, and the engine refuses a roll taken out of
+ * turn, so two phones cannot roll together even if one is stale.
+ *
+ * Highest total starts; turns then run clockwise through the seating order.
+ * A tie is re-rolled between the tied players, in the same order.
  */
 export function OrderRollScreen({
   state,
@@ -27,16 +31,15 @@ export function OrderRollScreen({
     .map((e) => e.total ?? 0)
   const best = contenderTotals.length ? Math.max(...contenderTotals) : 0
 
-  const waitingOnMe = state.orderRolls.some(
-    (e) =>
-      e.dice === null && state.orderContenders.includes(e.playerId) && controlsPlayer(e.playerId),
-  )
+  const upNow = orderRollTurn(state)
+  const waitingOnMe = upNow !== null && controlsPlayer(upNow)
+  const upNowName = upNow ? state.players.find((p) => p.id === upNow)?.name : null
 
   return (
     <div className="setup-shell">
       <div className="setup-hero">
         <h1>Who goes first?</h1>
-        <p>Everyone rolls once, on their own phone. Highest total starts.</p>
+        <p>One at a time, in order, on your own phone. Highest total starts.</p>
       </div>
 
       <div className="panel">
@@ -64,13 +67,15 @@ export function OrderRollScreen({
               const isWinner = complete && contending && entry.total === best
               const mine = controlsPlayer(entry.playerId)
               const awaiting = entry.dice === null && contending
+              // Only the one player the roll-off has reached may roll.
+              const isTheirTurn = upNow === entry.playerId
 
               return (
                 <div
                   key={entry.playerId}
                   className={[
                     'order-row',
-                    awaiting && mine ? 'is-next' : '',
+                    isTheirTurn ? 'is-next' : '',
                     isWinner ? 'is-winner' : '',
                   ]
                     .filter(Boolean)
@@ -92,14 +97,16 @@ export function OrderRollScreen({
                     <div style={{ fontSize: 11, color: 'var(--text-faint)' }}>
                       {entry.dice
                         ? entry.dice.join(' + ')
-                        : contending
-                          ? 'Waiting to roll'
-                          : 'Out of the roll-off'}
+                        : !contending
+                          ? 'Out of the roll-off'
+                          : isTheirTurn
+                            ? 'Rolling now'
+                            : 'Waiting their turn'}
                     </div>
                   </div>
 
                   {awaiting ? (
-                    mine ? (
+                    isTheirTurn && mine ? (
                       <button
                         className="btn btn-primary btn-sm order-roll-btn"
                         disabled={rolling}
@@ -109,8 +116,10 @@ export function OrderRollScreen({
                       >
                         {'\u{1F3B2}'} Roll
                       </button>
+                    ) : isTheirTurn ? (
+                      <span className="order-waiting">rolling now</span>
                     ) : (
-                      <span className="order-waiting">on their phone</span>
+                      <span className="order-waiting">waiting</span>
                     )
                   ) : (
                     <span className="order-total">{entry.total ?? '—'}</span>
@@ -125,7 +134,7 @@ export function OrderRollScreen({
               <span className="order-hint">
                 {waitingOnMe
                   ? 'Your turn — press Roll on your row.'
-                  : 'Waiting for the others to roll.'}
+                  : `Waiting for ${upNowName ?? 'the next player'} to roll.`}
               </span>
             )}
             {complete && (

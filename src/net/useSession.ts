@@ -24,6 +24,13 @@ import { multiplayerConfigured, multiplayerSetupHint, supabase } from './supabas
  * code, so devices never have to reach each other directly. Different Wi-Fi,
  * mobile data and locked-down networks all work the same way.
  */
+/**
+ * How long the line may be down before the player is told. Long enough that
+ * an ordinary blip passes unnoticed, short enough that a real outage is not a
+ * mystery.
+ */
+const RECONNECT_GRACE_MS = 2500
+
 export type NetRole = 'solo' | 'host' | 'guest'
 export type NetStatus = 'idle' | 'connecting' | 'ready' | 'error'
 
@@ -41,6 +48,11 @@ export interface Session {
   isHost: boolean
   /** How many phones have joined this host. */
   guestCount: number
+  /**
+   * True only when the line has been down long enough to be worth telling the
+   * player about. Short blips never set it, so the badge does not flicker.
+   */
+  reconnecting: boolean
   multiplayerAvailable: boolean
   startHosting: () => void
   joinGame: (code: string) => void
@@ -85,6 +97,19 @@ export function useSession(): Session {
   statusRef.current = status
   /** Bumped by every message the host sends us, to prove the line is alive. */
   const lastMessageRef = useRef(0)
+  /** Which channel is the live one; older ones' callbacks are ignored. */
+  const generationRef = useRef(0)
+  /**
+   * Whether to actually SAY we are reconnecting.
+   *
+   * A dropped channel is normal and usually fixed within a few hundred
+   * milliseconds. Announcing every one of those made the badge flicker on and
+   * off all game while nothing was actually wrong, so the badge only appears
+   * once the line has been down long enough to be worth mentioning, and goes
+   * the instant it is back.
+   */
+  const [reconnecting, setReconnecting] = useState(false)
+  const announceTimerRef = useRef<number | null>(null)
 
   const send = useCallback((message: NetMessage) => {
     channelRef.current?.send({ type: 'broadcast', event: 'msg', payload: message })
@@ -197,6 +222,28 @@ export function useSession(): Session {
     [applyLocally, publish, send],
   )
 
+  /** The line is back. Say nothing, and cancel any pending announcement. */
+  const linkIsUp = useCallback(() => {
+    if (announceTimerRef.current !== null) {
+      window.clearTimeout(announceTimerRef.current)
+      announceTimerRef.current = null
+    }
+    setReconnecting(false)
+  }, [])
+
+  /**
+   * The line is down. Start the clock, but do not say so yet — most drops are
+   * fixed before this fires, and a badge that blinks on every one of them is
+   * worse than no badge.
+   */
+  const linkIsDown = useCallback(() => {
+    if (announceTimerRef.current !== null) return
+    announceTimerRef.current = window.setTimeout(() => {
+      announceTimerRef.current = null
+      setReconnecting(true)
+    }, RECONNECT_GRACE_MS)
+  }, [])
+
   // ----------------------------------------------------------------- guest --
 
   const handleGuestMessage = useCallback(
@@ -205,6 +252,7 @@ export function useSession(): Session {
       if (message.t === 'state') {
         if (message.forDevice && message.forDevice !== me) return
         joinedRef.current = true
+        linkIsUp()
         setState(message.state)
         setSeats(message.seats)
         setStatus('ready')
@@ -220,7 +268,7 @@ export function useSession(): Session {
         setError(message.reason)
       }
     },
-    [me],
+    [linkIsUp, me],
   )
 
   // ------------------------------------------------------------ connecting --
@@ -232,20 +280,31 @@ export function useSession(): Session {
         config: { broadcast: { self: false } },
       })
       channelRef.current = channel
+      // Every channel we open gets a number. The one we replaced still fires
+      // its own callbacks as it shuts down — including a CLOSED that used to
+      // be read as "the connection dropped" and kick off another reconnect,
+      // which replaced the channel, which closed it, round and round. A
+      // callback from anything but the current channel is now ignored.
+      generationRef.current += 1
+      const generation = generationRef.current
+      const isCurrent = () => generationRef.current === generation
 
       channel.on('broadcast', { event: 'msg' }, ({ payload }) => {
+        if (!isCurrent()) return
         const message = payload as NetMessage
         if (asHost) handleHostMessage(message)
         else handleGuestMessage(message)
       })
 
       channel.subscribe((channelStatus) => {
-        if (channelStatus === 'SUBSCRIBED') onReady()
-        else if (
-          channelStatus === 'CHANNEL_ERROR' ||
-          channelStatus === 'TIMED_OUT' ||
-          channelStatus === 'CLOSED'
-        ) {
+        if (!isCurrent()) return
+        if (channelStatus === 'SUBSCRIBED') {
+          onReady()
+          return
+        }
+        // CLOSED is deliberately not a failure: it is what a channel says when
+        // it is taken down, which is usually us taking it down.
+        if (channelStatus === 'CHANNEL_ERROR' || channelStatus === 'TIMED_OUT') {
           onFail('Could not reach the game server. Check your connection and try again.')
         }
       })
@@ -271,7 +330,7 @@ export function useSession(): Session {
     // outage does not hammer the server. It never gives up on its own.
     const wait = Math.min(400 * 2 ** retryCountRef.current, 5000)
     retryCountRef.current += 1
-    setStatus('connecting')
+    linkIsDown()
 
     retryTimerRef.current = window.setTimeout(() => {
       retryTimerRef.current = null
@@ -282,6 +341,7 @@ export function useSession(): Session {
         () => {
           retryCountRef.current = 0
           setError(null)
+          linkIsUp()
           if (asHost) {
             setStatus('ready')
             publish(stateRef.current)
@@ -293,7 +353,7 @@ export function useSession(): Session {
         () => reconnect(),
       )
     }, wait)
-  }, [me, openChannel, publish, send])
+  }, [linkIsDown, linkIsUp, me, openChannel, publish, send])
 
   /**
    * A locked phone stops talking. Rather than wait for the next failure, try
@@ -437,6 +497,8 @@ export function useSession(): Session {
     codeRef.current = null
     joinedRef.current = false
     retryCountRef.current = 0
+    generationRef.current += 1
+    linkIsUp()
     if (retryTimerRef.current !== null) {
       window.clearTimeout(retryTimerRef.current)
       retryTimerRef.current = null
@@ -449,9 +511,16 @@ export function useSession(): Session {
     setMyPlayerId(null)
     setSeats({})
     setError(null)
-  }, [])
+  }, [linkIsUp])
 
-  useEffect(() => () => void channelRef.current?.unsubscribe(), [])
+  useEffect(
+    () => () => {
+      channelRef.current?.unsubscribe()
+      if (announceTimerRef.current !== null) window.clearTimeout(announceTimerRef.current)
+      if (retryTimerRef.current !== null) window.clearTimeout(retryTimerRef.current)
+    },
+    [],
+  )
 
   /**
    * A way to pull the plug on purpose, so that losing the connection can be
@@ -503,6 +572,7 @@ export function useSession(): Session {
     controlsPlayer,
     isHost: role !== 'guest',
     guestCount: Object.values(seats).filter(Boolean).length,
+    reconnecting,
     multiplayerAvailable: multiplayerConfigured,
     startHosting,
     joinGame,

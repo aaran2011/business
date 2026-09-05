@@ -30,6 +30,18 @@ export function moneySentence(name: string, delta: number, reason: string): stri
   return `${name} ${verb} ${money(Math.abs(delta))} — ${reason}.`
 }
 
+/**
+ * Tell the other phones what just happened, in one sentence.
+ *
+ * Deliberately the ONLY thing they are told. They do not see the card, the
+ * price, the rent table or anybody's balance — a purchase is the buyer's
+ * business. `playerId` is whose action it was, so their own device can skip a
+ * notice about something it just watched happen in full.
+ */
+export function notify(state: GameState, playerId: string, text: string): void {
+  state.notice = { id: state.nextNoticeId++, text, playerId }
+}
+
 /** The popup currently on screen, if any. */
 export function currentPopup(state: GameState) {
   return state.popups[0] ?? null

@@ -18,7 +18,7 @@ import { SPECIAL_ASSETS } from '../src/data/specialAssets'
 import { UNO_CARDS } from '../src/data/unoCards'
 import { buildOneStep, canBuild, sellBuilding } from '../src/engine/building'
 import { diceTotal, rollDice } from '../src/engine/dice'
-import { createInitialState, gameReducer, makeGameCode } from '../src/engine/game'
+import { createInitialState, gameReducer, makeGameCode, orderRollTurn } from '../src/engine/game'
 import { attemptJailEscape } from '../src/engine/jail'
 import { setPopup } from '../src/engine/log'
 import { mortgageProperty, unmortgageProperty } from '../src/engine/mortgage'
@@ -42,6 +42,7 @@ import {
   handleResort,
   handleTravellingDuty,
   handleUno,
+  buyProperty,
   sendToJail,
 } from '../src/engine/spaces'
 import { guestMayDo, maskCashExcept, redactFor } from '../src/net/protocol'
@@ -541,20 +542,60 @@ console.log('— Jail —')
   check('the turn is spent in Jail', next.stage, 'awaitingEndTurn')
 }
 {
-  // The whole attempt is three rolls in one turn.
+  // The attempt is UP TO three rolls, one press at a time, in one turn.
   const state = makeState(2)
   const [a] = state.players
   a.inJail = true
   a.position = JAIL_INDEX
   state.stage = 'inJail'
 
-  const attempt = attemptJailEscape(state, a.id)
-  check('three dice are thrown in one turn', attempt.rolls.length, 3)
-  check('the total is the sum of the three', attempt.total, attempt.rolls.reduce((x, y) => x + y, 0))
-  check('release matches the 12 target', attempt.released, attempt.total >= 12)
+  const first = attemptJailEscape(state, a.id)
+  check('one press throws one die', first.rolls.length, 1)
+  check('the total is that die', first.total, first.rolls[0])
+  const second = attemptJailEscape(state, a.id)
+  check('a second press adds a second die', second.rolls.length, 2)
+  check('and the total accumulates', second.total, second.rolls.reduce((x, y) => x + y, 0))
+  check('release matches the 12 target', second.released, second.total >= 12)
   // Either way the player is still shown as jailed for the rest of this turn.
   check('the player stays on the Jail space this turn', a.inJail, true)
-  check('release is only pending', a.jailReleasePending, attempt.released)
+  check('release is only pending', a.jailReleasePending, second.released)
+}
+{
+  // Three rolls is the ceiling: a fourth press changes nothing.
+  const state = makeState(2)
+  const [a] = state.players
+  a.inJail = true
+  a.position = JAIL_INDEX
+  state.stage = 'inJail'
+  const realRandom = Math.random
+  Math.random = () => 0 // every face a 1, so the target is never reached
+  attemptJailEscape(state, a.id)
+  attemptJailEscape(state, a.id)
+  const third = attemptJailEscape(state, a.id)
+  const fourth = attemptJailEscape(state, a.id)
+  Math.random = realRandom
+  check('three rolls are the most on offer', third.rolls.length, 3)
+  check('the attempt is finished after three', third.finished, true)
+  check('a fourth press throws nothing', fourth.rolls.length, 3)
+  check('and leaves them in Jail', a.jailReleasePending, false)
+}
+{
+  // Reaching 12 early stops the attempt — no pointless third roll.
+  const state = makeState(2)
+  const [a] = state.players
+  a.inJail = true
+  a.position = JAIL_INDEX
+  state.stage = 'inJail'
+  const realRandom = Math.random
+  Math.random = () => 0.99 // every face a 6
+  attemptJailEscape(state, a.id)
+  const second = attemptJailEscape(state, a.id)
+  const third = attemptJailEscape(state, a.id)
+  Math.random = realRandom
+  check('6 + 6 makes the target', second.total, 12)
+  check('which finishes the attempt', second.finished, true)
+  check('released on 12', second.released, true)
+  check('and no third die is thrown', third.rolls.length, 2)
 }
 {
   // Success frees the player at the START of the next turn, not immediately.
@@ -563,9 +604,11 @@ console.log('— Jail —')
   a.inJail = true
   a.position = JAIL_INDEX
   state.stage = 'inJail'
-  // Force a winning attempt by making every face a 6.
+  // Force a winning attempt by making every face a 6: 6 + 6 reaches 12.
   const realRandom = Math.random
   Math.random = () => 0.99
+  state = gameReducer(state, { type: 'JAIL_ROLL' })
+  check('one roll of 6 is not enough on its own', state.stage, 'inJail')
   state = gameReducer(state, { type: 'JAIL_ROLL' })
   Math.random = realRandom
 
@@ -610,7 +653,10 @@ console.log('— Jail —')
   a.position = JAIL_INDEX
   state.stage = 'inJail'
   const realRandom = Math.random
-  Math.random = () => 0 // every face a 1, total 3
+  Math.random = () => 0 // every face a 1, total 3 after all three rolls
+  state = gameReducer(state, { type: 'JAIL_ROLL' })
+  state = gameReducer(state, { type: 'JAIL_ROLL' })
+  check('the turn is still theirs until the third roll', state.stage, 'inJail')
   state = gameReducer(state, { type: 'JAIL_ROLL' })
   Math.random = realRandom
 
@@ -1391,21 +1437,28 @@ console.log('— Each player rolls their own opening die —')
   let nth = 0
   Math.random = () => queue[Math.min(nth++, queue.length - 1)]
 
-  // Rolling names a player, so one device cannot roll for everyone.
+  // Strictly in seating order: A, then B, then C. Nobody may jump the queue.
+  check('A is up first', orderRollTurn(state), 'a')
   state = gameReducer(state, { type: 'ROLL_FOR_ORDER', playerId: 'b' })
-  check('only the named player rolled', state.orderRolls.map((e) => e.dice !== null), [false, true, false])
-  check('and it is the face that was rolled', state.orderRolls[1].total, 1)
-
-  // Rolling twice for the same player changes nothing.
-  state = gameReducer(state, { type: 'ROLL_FOR_ORDER', playerId: 'b' })
-  check('a player cannot roll twice', state.orderRolls[1].total, 1)
+  check('B cannot jump the queue', state.orderRolls.map((e) => e.dice !== null), [false, false, false])
 
   state = gameReducer(state, { type: 'ROLL_FOR_ORDER', playerId: 'a' })
+  check('only the named player rolled', state.orderRolls.map((e) => e.dice !== null), [true, false, false])
+  check('and it is the face that was rolled', state.orderRolls[0].total, 1)
+
+  // Rolling twice for the same player changes nothing.
+  state = gameReducer(state, { type: 'ROLL_FOR_ORDER', playerId: 'a' })
+  check('a player cannot roll twice', state.orderRolls[0].total, 1)
+
+  check('B is up next', orderRollTurn(state), 'b')
+  state = gameReducer(state, { type: 'ROLL_FOR_ORDER', playerId: 'b' })
+  check('C is up last', orderRollTurn(state), 'c')
   state = gameReducer(state, { type: 'ROLL_FOR_ORDER', playerId: 'c' })
   Math.random = realRandom
 
   ok('everyone has now rolled', state.orderRolls.every((e) => e.dice !== null))
-  check('each got their own face', state.orderRolls.map((e) => e.total), [4, 1, 6])
+  check('each got their own face', state.orderRolls.map((e) => e.total), [1, 4, 6])
+  check('and nobody is left to roll', orderRollTurn(state), null)
 
   // A player not in the roll-off cannot roll.
   const before = JSON.stringify(state.orderRolls)
@@ -1432,6 +1485,113 @@ console.log('— Each player rolls their own opening die —')
 }
 
 // ===========================================================================
+console.log('— Colour groups, building and the doubled site rent —')
+// ===========================================================================
+
+{
+  // The printed rule, checked as arithmetic rather than as a sentence:
+  // three of a colour doubles SITE rent; a house on a card ends the doubling
+  // for THAT card, which then charges the printed building rent.
+  const state = makeState(2)
+  const [a] = state.players
+  // A "group" is any THREE cards of a colour, not every card of that colour.
+  const allGreen = Object.keys(COUNTRIES).filter((id) => COUNTRIES[id].colour === 'green')
+  check('a colour group is three cards', DEFAULT_SETTINGS.colourGroups.sizeRequired, 3)
+  ok('and there are at least three greens', allGreen.length >= 3)
+
+  const green = allGreen.slice(0, 3)
+  const [first, second, third] = green
+  give(state, a.id, first)
+  const alone = calculateRent(state, first)
+  check('one card of the colour charges plain site rent', alone.amount, COUNTRIES[first].rent.site)
+  ok('and is not doubled', !alone.doubled)
+
+  give(state, a.id, second)
+  check('two is still not a group', calculateRent(state, first).amount, COUNTRIES[first].rent.site)
+
+  give(state, a.id, third)
+  const grouped = calculateRent(state, first)
+  check('three doubles the site rent', grouped.amount, COUNTRIES[first].rent.site * 2)
+  ok('and says so', grouped.doubled)
+  check(
+    'on every card of the colour',
+    green.map((id) => calculateRent(state, id).amount),
+    green.map((id) => COUNTRIES[id].rent.site * 2),
+  )
+
+  // A house on the first card takes THAT card out of the doubling.
+  buildOneStep(state, a.id, first)
+  const built = calculateRent(state, first)
+  check('a built card charges the printed house rent', built.amount, COUNTRIES[first].rent.house1)
+  ok('and is no longer doubled', !built.doubled)
+  check(
+    'while the unimproved cards keep the doubling',
+    [second, third].map((id) => calculateRent(state, id).amount),
+    [second, third].map((id) => COUNTRIES[id].rent.site * 2),
+  )
+}
+
+// ===========================================================================
+console.log('— Nobody buys what they cannot afford —')
+// ===========================================================================
+
+{
+  const state = makeState(2)
+  const [a] = state.players
+  const id = 'egypt'
+  const price = COUNTRIES[id].price
+  a.cash = price - 1
+  state.pendingPurchase = { propertyId: id, price }
+  state.stage = 'awaitingPurchase'
+
+  const tried = gameReducer(state, { type: 'BUY_PROPERTY' })
+  check('a purchase beyond the cash on hand does not happen', tried.holdings[id].ownerId, null)
+  check('and no money moves', tried.players[0].cash, price - 1)
+
+  const afford = makeState(2)
+  afford.players[0].cash = price
+  afford.pendingPurchase = { propertyId: id, price }
+  afford.stage = 'awaitingPurchase'
+  const bought = gameReducer(afford, { type: 'BUY_PROPERTY' })
+  check('exactly enough is enough', bought.holdings[id].ownerId, bought.players[0].id)
+}
+
+// ===========================================================================
+console.log('— The other phones are told, without being shown the card —')
+// ===========================================================================
+
+{
+  const state = makeState(2)
+  const [a] = state.players
+  const before = state.notice
+  check('nothing has happened yet', before, null)
+
+  buyProperty(state, a.id, 'egypt')
+  check('a purchase is announced', state.notice?.text, `${a.name} bought Egypt.`)
+  check('and attributed to the buyer', state.notice?.playerId, a.id)
+  ok('with no price in it', !state.notice!.text.includes('$'))
+
+  sendToJail(state, a.id)
+  check('going to Jail is announced', state.notice?.text, `${a.name} went to Jail.`)
+  ok('and never as just visiting', !state.notice!.text.toLowerCase().includes('visiting'))
+}
+
+{
+  // Landing on the Jail space is not the same as being sent there, and no
+  // longer interrupts anybody with a card about nothing happening.
+  const state = makeState(2)
+  const [a] = state.players
+  ok('landing on Jail is just visiting by default', DEFAULT_SETTINGS.jail.landingOnJailIsJustVisiting)
+  a.position = JAIL_INDEX - 1
+  const landed = gameReducer(
+    { ...state, stage: 'moving', pendingMove: { from: a.position, steps: 1 } },
+    { type: 'COMPLETE_MOVE' },
+  )
+  check('a visit puts up no card', landed.popups.length, 0)
+  ok('and does not jail them', !landed.players[0].inJail)
+}
+
+// ===========================================================================
 console.log('— What a joined phone is allowed to do —')
 // ===========================================================================
 
@@ -1449,12 +1609,34 @@ console.log('— What a joined phone is allowed to do —')
   ok('may NOT start the game', !guestMayDo({ type: 'START_GAME' }, 'g1', lobby))
   ok('an unseated phone may do nothing', !guestMayDo({ type: 'UPDATE_LOBBY_PLAYER', id: 'g1', name: 'x' }, null, lobby))
 
-  // Opening roll: there is no "turn" yet, so this must not be gated on one.
+  // Opening roll: strictly one player at a time, in seating order.
   const rolling = gameReducer(lobby, { type: 'START_GAME' })
   check('the roll-off has no turn order yet', rolling.turnOrder, [])
-  ok('may take their OWN opening roll', guestMayDo({ type: 'ROLL_FOR_ORDER', playerId: 'g1' }, 'g1', rolling))
+  check('the host rolls first', orderRollTurn(rolling), 'host')
+  ok(
+    'may NOT roll before the roll-off reaches them',
+    !guestMayDo({ type: 'ROLL_FOR_ORDER', playerId: 'g1' }, 'g1', rolling),
+  )
   ok('may NOT roll for someone else', !guestMayDo({ type: 'ROLL_FOR_ORDER', playerId: 'host' }, 'g1', rolling))
   ok('may NOT confirm the order', !guestMayDo({ type: 'CONFIRM_ORDER' }, 'g1', rolling))
+
+  // An out-of-turn roll is refused by the engine, not merely hidden.
+  const jumped = gameReducer(rolling, { type: 'ROLL_FOR_ORDER', playerId: 'g1' })
+  check(
+    'rolling out of turn does nothing',
+    jumped.orderRolls.find((e) => e.playerId === 'g1')!.dice,
+    null,
+  )
+  check('and does not move the roll-off on', orderRollTurn(jumped), 'host')
+
+  const afterHost = gameReducer(rolling, { type: 'ROLL_FOR_ORDER', playerId: 'host' })
+  check('once the host has rolled it is the next player', orderRollTurn(afterHost), 'g1')
+  ok('who may now roll', guestMayDo({ type: 'ROLL_FOR_ORDER', playerId: 'g1' }, 'g1', afterHost))
+  ok(
+    'and the host may not roll again',
+    !guestMayDo({ type: 'ROLL_FOR_ORDER', playerId: 'host' }, 'host', afterHost),
+  )
+  check('exactly one player is ever up', [orderRollTurn(rolling), orderRollTurn(afterHost)].filter(Boolean).length, 2)
 }
 {
   // In play: only on your own turn, and never the host controls.

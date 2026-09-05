@@ -14,6 +14,8 @@ interface Props {
   canAct: boolean
   /** Only the device running the game gets the host controls. */
   isHost: boolean
+  /** Building goes through here so the colour-group warning cannot be skipped. */
+  onBuild: (propertyId: string) => void
 }
 
 /**
@@ -29,6 +31,7 @@ export function ActionBar({
   onRemovePlayer,
   canAct,
   isHost,
+  onBuild,
 }: Props) {
   if (state.phase !== 'playing') return null
 
@@ -68,7 +71,7 @@ export function ActionBar({
             className="btn btn-primary"
             onClick={() => dispatch({ type: 'JAIL_ROLL' })}
           >
-            Roll the dice — {state.settings.jail.escapeDieRolls} rolls, need{' '}
+            Roll ({player.jailRolls.length} of {state.settings.jail.escapeDieRolls} used) — need{' '}
             {state.settings.jail.escapeTargetTotal}+
           </button>
           <button
@@ -81,7 +84,7 @@ export function ActionBar({
                 : undefined
             }
           >
-            Pay {money(state.settings.jail.payToEscape)} and go free
+            Pay {money(state.settings.jail.payToEscape)} to the bank
           </button>
         </>
       ) : null}
@@ -96,6 +99,7 @@ export function ActionBar({
           </button>
         </>
       )}
+      {/* No Buy button, and nothing suggesting one: they simply cannot buy it. */}
       {purchase && !canAfford && (
         <button className="btn" onClick={() => dispatch({ type: 'DECLINE_PURCHASE' })}>
           Continue
@@ -106,7 +110,7 @@ export function ActionBar({
         <>
           <button
             className="btn btn-good"
-            onClick={() => dispatch({ type: 'BUILD', propertyId: buildOffer.propertyId })}
+            onClick={() => onBuild(buildOffer.propertyId)}
           >
             Build {buildCheck.nextLabel || 'house'}
             {buildCheck.cost ? ` — ${money(buildCheck.cost)}` : ''}
@@ -122,7 +126,14 @@ export function ActionBar({
         </button>
       )}
 
-      {ownsAnything && (
+      {/*
+        Out of reach means out of reach. While an unaffordable country is on
+        offer the deeds screen is closed too, so there is no mortgage-something
+        -and-come-straight-back route to a purchase the player cannot afford.
+        Raising cash is still possible on any other turn, and always when a
+        debt has to be settled.
+      */}
+      {ownsAnything && (!purchase || canAfford || inDebt) && (
         <button className="btn" onClick={onManage} disabled={busy}>
           Build / Sell / Mortgage
         </button>

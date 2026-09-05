@@ -66,9 +66,11 @@ export function createInitialState(settings: GameSettings = DEFAULT_SETTINGS): G
     orderRollRound: 1,
     log: [],
     popups: [],
+    notice: null,
     winnerId: null,
     nextLogId: 1,
     nextPopupId: 1,
+    nextNoticeId: 1,
   }
 }
 
@@ -364,9 +366,31 @@ function startGame(state: GameState): void {
   )
 }
 
+/**
+ * Whose turn it is to take the opening roll, or null when everyone still in
+ * the roll-off has rolled.
+ *
+ * The roll-off is strictly one at a time, in seating order: Player 1, then 2,
+ * then 3, and so on. Only this player is offered a Roll button, on their own
+ * device, so two phones can never roll at the same moment. On a tie the tied
+ * players roll again in the same order.
+ */
+export function orderRollTurn(state: GameState): string | null {
+  if (state.phase !== 'orderRoll') return null
+  const seated = [...state.players].sort((a, b) => a.seat - b.seat)
+  for (const player of seated) {
+    if (!state.orderContenders.includes(player.id)) continue
+    const entry = state.orderRolls.find((e) => e.playerId === player.id)
+    if (entry && entry.dice === null) return player.id
+  }
+  return null
+}
+
 /** One named player takes their own opening roll, from their own device. */
 function rollForOrder(state: GameState, playerId: string): void {
   if (state.phase !== 'orderRoll') return
+  // Rolling out of order is refused outright, not merely hidden in the UI.
+  if (orderRollTurn(state) !== playerId) return
   const pending = state.orderRolls.find(
     (entry) =>
       entry.playerId === playerId &&
@@ -551,11 +575,15 @@ function declinePurchase(state: GameState): void {
   state.stage = 'awaitingEndTurn'
 }
 
+/**
+ * One roll of a Jail escape attempt. The turn only ends once the attempt is
+ * over — either the total reached 12, or all three rolls have been used — so
+ * the player presses Roll up to three times and watches the total build.
+ */
 function jailEscapeAttempt(state: GameState): void {
   if (state.stage !== 'inJail') return
-  attemptJailEscape(state, currentPlayer(state).id)
-  // Either way the turn is spent in Jail; release takes effect next turn.
-  state.stage = 'awaitingEndTurn'
+  const attempt = attemptJailEscape(state, currentPlayer(state).id)
+  if (attempt.finished) state.stage = 'awaitingEndTurn'
 }
 
 function endTurn(state: GameState): void {
@@ -591,8 +619,10 @@ function advanceToNextPlayer(state: GameState): void {
     state.pendingPurchase = null
     state.pendingBuild = null
     state.popups = []
-    // A player who earned their release last turn walks free now.
+    // A player who earned their release last turn walks free now. Anybody
+    // still in gets a clean sheet of three rolls for this turn.
     openJailDoorIfEarned(state, candidate.id)
+    if (candidate.inJail) candidate.jailRolls = []
     state.stage = candidate.inJail ? 'inJail' : 'awaitingRoll'
 
     // "Pause on Next Turn" takes effect here, before the new player acts.

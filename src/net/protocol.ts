@@ -12,6 +12,7 @@
  * exists.
  */
 
+import { orderRollTurn } from '../engine/game'
 import { leaderboard } from '../engine/queries'
 import type { GameAction, GameState } from '../engine/types'
 
@@ -121,9 +122,14 @@ export function guestMayDo(
     case 'REMOVE_LOBBY_PLAYER':
       return state.phase === 'setup' && action.id === guestPlayerId
 
-    // Everyone takes their own opening roll, and only their own.
+    // Everyone takes their own opening roll, only their own, and only when
+    // the roll-off has come round to them.
     case 'ROLL_FOR_ORDER':
-      return state.phase === 'orderRoll' && action.playerId === guestPlayerId
+      return (
+        state.phase === 'orderRoll' &&
+        action.playerId === guestPlayerId &&
+        orderRollTurn(state) === guestPlayerId
+      )
 
     // Your own deeds are yours to build on, sell and mortgage — and nobody
     // else's ever are.

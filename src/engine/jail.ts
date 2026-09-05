@@ -1,26 +1,30 @@
 /**
  * Jail logic.
  *
- * A jailed player has exactly two options on their turn:
+ * Being sent to Jail ends the player's movement there and then. Their turn
+ * passes to the next player, and Jail is a real state they stay in until they
+ * buy or roll their way out — not a label on the board.
  *
- *   ROLL THE DICE — roll one die three times. If the three add up to 12 or
- *                   more they have earned their release.
- *   PAY $500      — hand the fee to the Bank and earn their release.
+ * On a jailed player's own turn there are exactly two choices:
+ *
+ *   PAY $500  — hand the fee to the Bank.
+ *   ROLL      — take up to three rolls of one die. The moment the running
+ *               total reaches 12 they have earned their release; if three
+ *               rolls fall short they stay in, and the turn ends.
  *
  * Either way the release takes effect on their NEXT turn: the current turn is
- * spent in Jail, and they roll and move as normal from the following turn.
- * A failed attempt simply ends the turn and the same two options are offered
- * again next time — and the same applies however many times a player is sent
- * to Jail.
+ * spent in Jail, and they roll and move as normal from the following one. A
+ * dice roll on a later turn never releases anybody by itself — only these two
+ * choices do.
  */
 
-import { rollJailDice } from './dice'
-import { addLog, money, moneySentence, setPopup } from './log'
+import { rollDie } from './dice'
+import { addLog, money, moneySentence, notify, setPopup } from './log'
 import { transferMoney } from './payments'
 import { getPlayer } from './queries'
 import type { GameState } from './types'
 
-/** Option B — pay the fee. Frees the player from their next turn. */
+/** Option A — pay the fee. Frees the player from their next turn. */
 export function payToEscapeJail(state: GameState, playerId: string): boolean {
   const player = getPlayer(state, playerId)
   const fee = state.settings.jail.payToEscape
@@ -30,6 +34,7 @@ export function payToEscapeJail(state: GameState, playerId: string): boolean {
   earnRelease(state, playerId)
 
   addLog(state, 'jail', `${player.name} paid ${money(fee)} and leaves Jail next turn.`)
+  notify(state, playerId, `${player.name} paid ${money(fee)} to get out of Jail.`)
   setPopup(
     state,
     {
@@ -46,51 +51,79 @@ export function payToEscapeJail(state: GameState, playerId: string): boolean {
 }
 
 export interface JailAttempt {
+  /** Every roll taken this turn, including the one just made. */
   rolls: number[]
   total: number
-  /** True when the three rolls made the target and release is now pending. */
+  /** True when the running total reached the target and release is pending. */
   released: boolean
+  /** True when this turn's attempt is over, either way. */
+  finished: boolean
 }
 
-/** Option A — roll one die three times and try to reach the target total. */
+/**
+ * Option B — one roll of the escape attempt.
+ *
+ * Called once per press, up to `escapeDieRolls` times in the same turn, so the
+ * player watches the total build up rather than being handed three numbers at
+ * once. Stops early the moment the target is reached — there is no reason to
+ * roll a fourth time after making 12 on the second.
+ */
 export function attemptJailEscape(state: GameState, playerId: string): JailAttempt {
   const player = getPlayer(state, playerId)
   const { escapeDieRolls, escapeTargetTotal, payToEscape } = state.settings.jail
 
-  const rolls = rollJailDice(escapeDieRolls)
+  const before = player.jailRolls.reduce((sum, r) => sum + r, 0)
+  if (player.jailRolls.length >= escapeDieRolls || before >= escapeTargetTotal) {
+    return { rolls: player.jailRolls, total: before, released: before >= escapeTargetTotal, finished: true }
+  }
+
+  const roll = rollDie()
+  player.jailRolls = [...player.jailRolls, roll]
+  const rolls = player.jailRolls
   const total = rolls.reduce((sum, r) => sum + r, 0)
   const released = total >= escapeTargetTotal
-
-  player.jailRolls = rolls
+  const used = rolls.length
+  const finished = released || used >= escapeDieRolls
+  const left = escapeDieRolls - used
 
   addLog(
     state,
     'jail',
-    `${player.name} rolled ${rolls.join(' + ')} = ${total} in Jail (needs ${escapeTargetTotal}).`,
+    `${player.name} rolled ${roll} in Jail — ${rolls.join(' + ')} = ${total} of ${escapeTargetTotal} needed.`,
   )
 
   if (released) {
     earnRelease(state, playerId)
     addLog(state, 'jail', `${player.name} made ${total} and leaves Jail next turn.`)
-    setPopup(state, {
-      kind: 'simple',
-      icon: '\u{1F513}',
-      title: 'OUT NEXT TURN',
-      subtitle: `${rolls.join(' + ')} = ${total}, and ${escapeTargetTotal} was needed. ${player.name} walks free at the start of their next turn.`,
-    })
-  } else {
+    notify(state, playerId, `${player.name} rolled ${total} and gets out of Jail.`)
+    setPopup(
+      state,
+      {
+        kind: 'simple',
+        icon: '\u{1F513}',
+        title: 'OUT NEXT TURN',
+        subtitle: `${rolls.join(' + ')} = ${total}, and ${escapeTargetTotal} was needed. ${player.name} walks free at the start of their next turn.`,
+      },
+      playerId,
+    )
+  } else if (finished) {
     addLog(state, 'jail', `${player.name} fell short on ${total} and stays in Jail.`)
-    setPopup(state, {
-      kind: 'simple',
-      icon: '\u{1F512}',
-      title: 'STILL IN JAIL',
-      subtitle: `${rolls.join(' + ')} = ${total}, short of ${escapeTargetTotal}. Three fresh rolls next turn, or pay ${money(
-        payToEscape,
-      )}.`,
-    })
+    notify(state, playerId, `${player.name} stayed in Jail.`)
+    setPopup(
+      state,
+      {
+        kind: 'simple',
+        icon: '\u{1F512}',
+        title: 'STILL IN JAIL',
+        subtitle: `${rolls.join(' + ')} = ${total}, short of ${escapeTargetTotal}. Three fresh rolls next turn, or pay ${money(
+          payToEscape,
+        )}.`,
+      },
+      playerId,
+    )
   }
 
-  return { rolls, total, released }
+  return { rolls, total, released, finished: finished || left <= 0 }
 }
 
 /**
@@ -104,6 +137,9 @@ function earnRelease(state: GameState, playerId: string): void {
 /**
  * Called at the start of a jailed player's turn. Returns true if they walked
  * free, in which case they roll and move as normal.
+ *
+ * Release is only ever granted here, and only to somebody who earned it on a
+ * previous turn by paying or by rolling 12. Nothing else opens the door.
  */
 export function openJailDoorIfEarned(state: GameState, playerId: string): boolean {
   const player = getPlayer(state, playerId)

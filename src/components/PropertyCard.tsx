@@ -1,12 +1,8 @@
-import {
-  BUILDING_LEVEL_LABELS,
-  COLOUR_GROUP_LABELS,
-  COUNTRIES,
-} from '../data/properties'
+import { COLOUR_GROUP_LABELS, COUNTRIES } from '../data/properties'
 import { SPECIAL_ASSETS } from '../data/specialAssets'
 import { money } from '../engine/log'
 import { unmortgageCost } from '../engine/mortgage'
-import { hasCompleteColourGroup, ownsAssetPair } from '../engine/queries'
+import { ownsAssetPair } from '../engine/queries'
 import { rentTable } from '../engine/rent'
 import type { GameState } from '../engine/types'
 
@@ -18,8 +14,13 @@ const GROUP_COLOUR: Record<string, string> = {
 }
 
 /**
- * The full printed card for a country or a special asset. Shown when a space
- * is clicked and when a player lands on an unowned space.
+ * The card for a country or a special asset, shown when a player LANDS on it.
+ * Nothing opens this by tapping the board.
+ *
+ * Deliberately short. It has to fit an iPhone 12 mini without scrolling, so it
+ * carries the numbers a decision actually needs — the rents, what a house
+ * costs, the mortgage value — and leaves out what the board already shows
+ * (who owns it, whether it is mortgaged, which building level it is on).
  */
 export function PropertyCard({ state, propertyId }: { state: GameState; propertyId: string }) {
   const holding = state.holdings[propertyId]
@@ -30,8 +31,6 @@ export function PropertyCard({ state, propertyId }: { state: GameState; property
   if (country) {
     const rents = rentTable(state, propertyId)!
     const level = holding.buildings
-    const groupComplete = owner ? hasCompleteColourGroup(state, owner.id, country.colour) : false
-    const required = state.settings.colourGroups.sizeRequired
     const maxLevel = state.settings.buildings.maxLevel
     const hotelInPlay = maxLevel >= 4
 
@@ -43,26 +42,17 @@ export function PropertyCard({ state, propertyId }: { state: GameState; property
             <h3>{country.name}</h3>
             <span>{COLOUR_GROUP_LABELS[country.colour]} group</span>
           </div>
+          <span className="prop-price">{money(country.price)}</span>
         </div>
 
         <table className="rent-table">
           <tbody>
-            <tr>
-              <td>Purchase price</td>
-              <td>{money(country.price)}</td>
-            </tr>
-            <tr>
-              <td>Owner</td>
-              <td style={{ color: owner?.colourHex }}>{owner ? owner.name : 'Bank'}</td>
-            </tr>
-
-            <tr className={`sep${level === 0 && !groupComplete ? ' is-current' : ''}`}>
-              <td>Site only rent</td>
-              <td>{money(rents.site)}</td>
-            </tr>
-            <tr className={level === 0 && groupComplete ? 'is-current' : ''}>
-              <td>Site rent — complete {required}-card group</td>
-              <td>{money(rents.groupSite)}</td>
+            <tr className={level === 0 ? 'is-current' : ''}>
+              <td>Site rent</td>
+              <td>
+                {money(rents.site)}
+                <small className="rent-alt"> · {money(rents.groupSite)} with 3</small>
+              </td>
             </tr>
             <tr className={level === 1 ? 'is-current' : ''}>
               <td>1 House</td>
@@ -82,24 +72,17 @@ export function PropertyCard({ state, propertyId }: { state: GameState; property
                 <td>{money(rents.hotel)}</td>
               </tr>
             )}
-
             <tr className="sep">
-              <td>Cost of House</td>
+              <td>House</td>
               <td>{money(country.houseCost)}</td>
             </tr>
-            {hotelInPlay && (
-              <tr>
-                <td>Cost of Hotel</td>
-                <td>{money(country.hotelCost)}</td>
-              </tr>
-            )}
             <tr>
-              <td>Bank Mortgage Value</td>
+              <td>Mortgage</td>
               <td>{money(country.mortgage)}</td>
             </tr>
             {holding.mortgaged && (
               <tr>
-                <td>Cost to lift mortgage</td>
+                <td>Lift mortgage</td>
                 <td>{money(unmortgageCost(state, propertyId))}</td>
               </tr>
             )}
@@ -107,21 +90,8 @@ export function PropertyCard({ state, propertyId }: { state: GameState; property
         </table>
 
         <div className="rent-note">
-          Holding {required} cards of one colour doubles the SITE rent on every unimproved card of
-          that colour. The moment a house goes up here, this card leaves the doubling behind and
-          charges its printed building rent instead — the rest of the colour group keeps its
-          doubled site rent. You do not need a colour group to build: landing on a country you
-          already own is enough, up to {maxLevel} house{maxLevel === 1 ? '' : 's'}.
-        </div>
-
-        <div className="prop-meta">
-          <span className="chip">Building level: {BUILDING_LEVEL_LABELS[level]}</span>
-          {groupComplete && <span className="chip">Colour group complete</span>}
-          {holding.mortgaged ? (
-            <span className="tag tag-mortgaged">Mortgaged</span>
-          ) : (
-            <span className="chip">Not mortgaged</span>
-          )}
+          Owning 3 cards of the same colour doubles the SITE rent. Building a house on a card
+          removes the doubling for that card; its rent becomes the printed building rent.
         </div>
       </div>
     )
@@ -140,41 +110,28 @@ export function PropertyCard({ state, propertyId }: { state: GameState; property
           <span className="flag">{asset.icon}</span>
           <div>
             <h3>{asset.name}</h3>
-            <span>Transport / Utility asset</span>
+            <span>Transport / utility</span>
           </div>
+          <span className="prop-price">{money(asset.price)}</span>
         </div>
 
         <table className="rent-table">
           <tbody>
-            <tr>
-              <td>Purchase price</td>
-              <td>{money(asset.price)}</td>
-            </tr>
-            <tr>
-              <td>Owner</td>
-              <td style={{ color: owner?.colourHex }}>{owner ? owner.name : 'Bank'}</td>
-            </tr>
-            <tr className={`sep${!paired ? ' is-current' : ''}`}>
-              <td>Normal rent</td>
+            <tr className={!paired ? 'is-current' : ''}>
+              <td>Rent</td>
               <td>{money(asset.rent)}</td>
             </tr>
             <tr className={paired ? 'is-current' : ''}>
-              <td>Rent if owner also holds {partner.name}</td>
+              <td>With {partner.name}</td>
               <td>{money(asset.pairedRent)}</td>
             </tr>
             <tr className="sep">
-              <td>Paired asset required</td>
-              <td>
-                {partner.icon} {partner.name}
-              </td>
-            </tr>
-            <tr>
-              <td>Bank Mortgage Value</td>
+              <td>Mortgage</td>
               <td>{money(asset.mortgage)}</td>
             </tr>
             {holding.mortgaged && (
               <tr>
-                <td>Cost to lift mortgage</td>
+                <td>Lift mortgage</td>
                 <td>{money(unmortgageCost(state, propertyId))}</td>
               </tr>
             )}
@@ -182,17 +139,8 @@ export function PropertyCard({ state, propertyId }: { state: GameState; property
         </table>
 
         <div className="rent-note">
-          Transport and utility assets never take houses or hotels, and they are never counted by
-          Custom Duty or Travelling Duty.
-        </div>
-
-        <div className="prop-meta">
-          {paired && <span className="chip">Pair bonus active</span>}
-          {holding.mortgaged ? (
-            <span className="tag tag-mortgaged">Mortgaged</span>
-          ) : (
-            <span className="chip">Not mortgaged</span>
-          )}
+          Transport and utility assets never take houses, and are never counted by Custom Duty or
+          Travelling Duty.
         </div>
       </div>
     )

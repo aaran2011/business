@@ -1,9 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { BOARD, BOARD_SIZE } from './data/board'
+import { COUNTRIES } from './data/properties'
 import { ActionBar } from './components/ActionBar'
 import { Board } from './components/Board'
 import { BuildOffer } from './components/BuildOffer'
+import { BuildWarning } from './components/BuildWarning'
 import { JailDice } from './components/Dice'
+import { EventNotice } from './components/EventNotice'
 import { EventPopup } from './components/EventPopup'
 import { HouseRulesModal } from './components/HouseRulesModal'
 import { Leaderboard } from './components/Leaderboard'
@@ -19,7 +22,7 @@ import { JoinPanel } from './components/JoinPanel'
 import { useSession } from './net/useSession'
 import { maskCashExcept } from './net/protocol'
 import { money } from './engine/log'
-import { debtOwedBy, displayNameOf } from './engine/queries'
+import { debtOwedBy, displayNameOf, hasCompleteColourGroup } from './engine/queries'
 import type { GameAction, GameState } from './engine/types'
 
 type Dispatch = (action: GameAction) => void
@@ -36,17 +39,11 @@ export default function App() {
 
   const [rolling, setRolling] = useState(false)
   const [displayPositions, setDisplayPositions] = useState<Record<string, number>>({})
-  const [selectedProperty, setSelectedProperty] = useState<string | null>(null)
   const [showManage, setShowManage] = useState(false)
   const [showHouseRules, setShowHouseRules] = useState(false)
   const [showTimer, setShowTimer] = useState(false)
   const [showRemove, setShowRemove] = useState(false)
   const [remainingMs, setRemainingMs] = useState<number | null>(null)
-  /**
-   * A beat after the token stops before a card opens, so you can see where you
-   * actually landed instead of it being covered instantly.
-   */
-  const [settled, setSettled] = useState(true)
 
   /** Bumped once per throw so each die picks a fresh spin. */
   const [rollId, setRollId] = useState(0)
@@ -95,8 +92,6 @@ export default function App() {
       setDisplayPositions((prev) => ({ ...prev, [playerId]: (from + step) % BOARD_SIZE }))
       if (step >= steps) {
         window.clearInterval(timer)
-        setSettled(false)
-        window.setTimeout(() => setSettled(true), state.settings.landingPauseMs)
         // The guest animates the pawn to match, but the host decides when the
         // move is finished — otherwise two devices resolve the same landing.
         if (!isGuestRef.current) dispatch({ type: 'COMPLETE_MOVE' })
@@ -118,8 +113,7 @@ export default function App() {
    * of them — no popup, no purchase decision, no open dialog, no debt — play
    * moves on without an End Turn button.
    */
-  const dialogOpen =
-    showManage || showHouseRules || showTimer || showRemove || selectedProperty !== null
+  const dialogOpen = showManage || showHouseRules || showTimer || showRemove
   const currentId = state.turnOrder[state.currentIndex]
   const blockedByDebt = currentId ? debtOwedBy(state, currentId) > 0 : false
 
@@ -242,16 +236,13 @@ export default function App() {
       dispatch={act}
       canAct={session.controlsPlayer(state.turnOrder[state.currentIndex])}
       isHost={session.isHost}
-      reconnecting={session.status === 'connecting'}
-      settled={settled}
+      reconnecting={session.reconnecting}
       controlsPlayer={session.controlsPlayer}
       seatName={state.players.find((p) => p.id === session.myPlayerId)?.name ?? null}
       rolling={rolling}
       rollId={rollId}
       displayPositions={displayPositions}
       remainingMs={remainingMs}
-      selectedProperty={selectedProperty}
-      setSelectedProperty={setSelectedProperty}
       showManage={showManage}
       setShowManage={setShowManage}
       showHouseRules={showHouseRules}
@@ -273,8 +264,6 @@ interface PlayingViewProps {
   isHost: boolean
   /** True while this device is quietly getting back into the game. */
   reconnecting: boolean
-  /** False for a beat after the token lands, so the landing stays visible. */
-  settled: boolean
   /** Whether this device plays a given seat. */
   controlsPlayer: (playerId: string) => boolean
   /** The seat this phone is playing, when it joined with a code. */
@@ -283,8 +272,6 @@ interface PlayingViewProps {
   rollId: number
   displayPositions: Record<string, number>
   remainingMs: number | null
-  selectedProperty: string | null
-  setSelectedProperty: (id: string | null) => void
   showManage: boolean
   setShowManage: (v: boolean) => void
   showHouseRules: boolean
@@ -301,15 +288,12 @@ function PlayingView({
   canAct,
   isHost,
   reconnecting,
-  settled,
   seatName,
   controlsPlayer,
   rolling,
   rollId,
   displayPositions,
   remainingMs,
-  selectedProperty,
-  setSelectedProperty,
   showManage,
   setShowManage,
   showHouseRules,
@@ -344,9 +328,25 @@ function PlayingView({
   // Only the device that has to answer sees the decision card pop up. Everyone
   // else can still tap a space to read it, but is not asked to choose.
   const offeredToMe = canAct ? state.pendingPurchase : null
-  const cardId = selectedProperty ?? offeredToMe?.propertyId ?? buildOffer?.propertyId ?? null
+  // Cards open because the game says so — landing on a space — and never
+  // because somebody tapped the board.
+  const cardId = offeredToMe?.propertyId ?? buildOffer?.propertyId ?? null
   const popup = state.popups[0] ?? null
   const buildCheck = buildOffer ? canBuild(state, player.id, buildOffer.propertyId) : null
+
+  /**
+   * Building on a completed colour group costs that card its doubled site
+   * rent, so the player is warned and asked before any money moves. Every
+   * route to building goes through here.
+   */
+  const [confirmBuild, setConfirmBuild] = useState<string | null>(null)
+  const requestBuild = (propertyId: string) => {
+    const country = COUNTRIES[propertyId]
+    const complete =
+      country && hasCompleteColourGroup(state, player.id, country.colour)
+    if (complete) setConfirmBuild(propertyId)
+    else dispatch({ type: 'BUILD', propertyId })
+  }
   const lowTime = remainingMs !== null && remainingMs <= 60000
 
   return (
@@ -439,13 +439,36 @@ function PlayingView({
                     <strong>{player.name} is in Jail</strong>
                   </div>
                   <p className="jail-explain">
-                    {canAct ? 'You are' : 'They are'} locked up and cannot move.{' '}
-                    {canAct ? 'To get out you' : 'To get out they'} must either pay{' '}
-                    {money(state.settings.jail.payToEscape)} to the bank, or roll one die{' '}
-                    {state.settings.jail.escapeDieRolls} times and total{' '}
+                    {canAct ? 'You are' : 'They are'} locked up and cannot move. Two choices:
+                    pay {money(state.settings.jail.payToEscape)} to the bank, or take up to{' '}
+                    {state.settings.jail.escapeDieRolls} rolls of one die and total{' '}
                     {state.settings.jail.escapeTargetTotal} or more. Either way the release takes
-                    effect on {canAct ? 'your' : 'their'} next turn.
+                    effect on {canAct ? 'your' : 'their'} next turn — a roll on a later turn does
+                    not open the door by itself.
                   </p>
+                  {canAct && (
+                    <div className="jail-choices">
+                      <button
+                        className="btn btn-primary btn-sm"
+                        onClick={() => dispatch({ type: 'JAIL_ROLL' })}
+                      >
+                        Roll ({player.jailRolls.length} of{' '}
+                        {state.settings.jail.escapeDieRolls} used)
+                      </button>
+                      <button
+                        className="btn btn-good btn-sm"
+                        onClick={() => dispatch({ type: 'JAIL_PAY' })}
+                        disabled={player.cash < state.settings.jail.payToEscape}
+                        title={
+                          player.cash < state.settings.jail.payToEscape
+                            ? `Needs ${money(state.settings.jail.payToEscape)} in cash.`
+                            : undefined
+                        }
+                      >
+                        Pay {money(state.settings.jail.payToEscape)}
+                      </button>
+                    </div>
+                  )}
                   {player.jailRolls.length > 0 && (
                     <JailDice
                       rolls={player.jailRolls}
@@ -458,7 +481,7 @@ function PlayingView({
                   )}
                 </div>
               </div>
-            ) : cardId && !popup && !state.paused && settled ? (
+            ) : cardId && !popup && !state.paused ? (
               <div className="centre-card">
                 <div className="centre-card-head">
                   <span>
@@ -469,7 +492,6 @@ function PlayingView({
                     className="centre-card-close"
                     aria-label="Close card"
                     onClick={() => {
-                      setSelectedProperty(null)
                       if (offeredToMe?.propertyId === cardId) {
                         dispatch({ type: 'DECLINE_PURCHASE' })
                       } else if (buildOffer?.propertyId === cardId) {
@@ -515,7 +537,7 @@ function PlayingView({
                     <>
                       <button
                         className="btn btn-good btn-sm"
-                        onClick={() => dispatch({ type: 'BUILD', propertyId: cardId })}
+                        onClick={() => requestBuild(cardId)}
                       >
                         Build {buildCheck.nextLabel || 'house'}
                         {buildCheck.cost ? ` — ${money(buildCheck.cost)}` : ''}
@@ -527,16 +549,12 @@ function PlayingView({
                         Not now
                       </button>
                     </>
-                  ) : buildOffer?.propertyId === cardId ? (
+                  ) : (
                     <button
                       className="btn btn-sm"
                       onClick={() => dispatch({ type: 'DECLINE_BUILD' })}
                     >
                       Continue
-                    </button>
-                  ) : (
-                    <button className="btn btn-sm" onClick={() => setSelectedProperty(null)}>
-                      Close
                     </button>
                   )}
                 </div>
@@ -552,7 +570,6 @@ function PlayingView({
               />
             ) : undefined
           }
-          onSelectSpace={setSelectedProperty}
         />
 
         <div className="side-col">
@@ -569,12 +586,18 @@ function PlayingView({
         onHouseRules={() => setShowHouseRules(true)}
         onEndGame={() => dispatch({ type: 'END_GAME' })}
         onRemovePlayer={() => setShowRemove(true)}
+        onBuild={requestBuild}
       />
 
       {state.paused && <PauseOverlay dispatch={dispatch} />}
 
       {showManage && (
-        <ManageModal state={state} dispatch={dispatch} onClose={() => setShowManage(false)} />
+        <ManageModal
+          state={state}
+          dispatch={dispatch}
+          onClose={() => setShowManage(false)}
+          onBuild={requestBuild}
+        />
       )}
 
       {showHouseRules && (
@@ -590,6 +613,23 @@ function PlayingView({
           state={state}
           dispatch={dispatch}
           onClose={() => setShowRemove(false)}
+        />
+      )}
+
+      {/* The short line the other phones get instead of the card itself. */}
+      <EventNotice
+        notice={state.notice}
+        mine={state.notice ? controlsPlayer(state.notice.playerId) : true}
+      />
+
+      {confirmBuild && (
+        <BuildWarning
+          propertyId={confirmBuild}
+          onConfirm={() => {
+            dispatch({ type: 'BUILD', propertyId: confirmBuild })
+            setConfirmBuild(null)
+          }}
+          onCancel={() => setConfirmBuild(null)}
         />
       )}
 

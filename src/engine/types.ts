@@ -211,11 +211,30 @@ export interface GameState {
    * landing on an event space shows both cards in order.
    */
   popups: Popup[]
+  /**
+   * The last thing worth telling everybody about, in one short sentence.
+   *
+   * This is what the OTHER phones see. They are not shown the card itself —
+   * a purchase or a Chance draw is the acting player's business — only a line
+   * saying what happened. It rides along in the state, so it reaches every
+   * device the same way the board does, and needs no dismissing: each phone
+   * shows it briefly and moves on.
+   */
+  notice: GameNotice | null
   winnerId: string | null
 
   /** Monotonic counters so ids stay stable across immutable updates. */
   nextLogId: number
   nextPopupId: number
+  nextNoticeId: number
+}
+
+export interface GameNotice {
+  id: number
+  /** Already written as a whole sentence: "Priya bought Egypt." */
+  text: string
+  /** Whose action it was — their own device does not need telling. */
+  playerId: string
 }
 
 export type GameAction =
