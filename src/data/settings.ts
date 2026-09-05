@@ -135,7 +135,11 @@ export interface GameSettings {
     escapeTargetTotal: number
     /**
      * [NOT PRINTED] The printed rules only send players to Jail via UNO 3 and
-     * Chance 10. Landing on the Jail space by dice is treated as visiting.
+     * Chance 10, and say nothing about landing on the Jail space by dice.
+     *
+     * Aaran decided this on 2026-09-05: landing on Jail puts you IN Jail. With
+     * one die the printed routes are almost unreachable — Chance's jail card
+     * needs a total of 10 — so without this nobody ever went to Jail at all.
      */
     landingOnJailIsJustVisiting: boolean
   }
@@ -225,10 +229,11 @@ export const DEFAULT_SETTINGS: GameSettings = {
   jail: {
     payToEscape: 500,
     escapeDieRolls: 3,
-    // One roll per turn: an escape attempt plays out over three turns.
-    escapeRollsPerTurn: 1,
+    // All three rolls are taken in the one turn, pressed one at a time.
+    escapeRollsPerTurn: 3,
     escapeTargetTotal: 12,
-    landingOnJailIsJustVisiting: true,
+    // Land on Jail and you are in Jail — his decision, not the printed set's.
+    landingOnJailIsJustVisiting: false,
   },
 
   elimination: { assetsGoTo: 'bank' },
@@ -270,7 +275,8 @@ export const UNCONFIRMED_SETTINGS = [
   {
     path: 'jail.landingOnJailIsJustVisiting',
     label: 'Landing on Jail by dice is just visiting',
-    detail: 'The printed rules only send players to Jail via UNO 3 and Chance 10.',
+    detail:
+      'Off: land on Jail and you go to Jail. The printed rules only send players there via UNO 3 and Chance 10, but with one die Chance 10 is unreachable, so leaving this on means nobody is ever jailed.',
   },
   {
     path: 'dice.count',

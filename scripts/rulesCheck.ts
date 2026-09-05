@@ -1577,18 +1577,79 @@ console.log('— The other phones are told, without being shown the card —')
 }
 
 {
-  // Landing on the Jail space is not the same as being sent there, and no
-  // longer interrupts anybody with a card about nothing happening.
-  const state = makeState(2)
-  const [a] = state.players
-  ok('landing on Jail is just visiting by default', DEFAULT_SETTINGS.jail.landingOnJailIsJustVisiting)
-  a.position = JAIL_INDEX - 1
-  const landed = gameReducer(
-    { ...state, stage: 'moving', pendingMove: { from: a.position, steps: 1 } },
-    { type: 'COMPLETE_MOVE' },
+  // Landing on the Jail space puts you IN Jail — Aaran's rule, and with one
+  // die the only route that comes up often enough to matter.
+  ok(
+    'landing on Jail is not just visiting',
+    !DEFAULT_SETTINGS.jail.landingOnJailIsJustVisiting,
   )
-  check('a visit puts up no card', landed.popups.length, 0)
-  ok('and does not jail them', !landed.players[0].inJail)
+
+  let state = makeState(2)
+  state.players[0].position = JAIL_INDEX - 1
+  state.stage = 'moving'
+  state.pendingMove = { from: JAIL_INDEX - 1, steps: 1 }
+  state = gameReducer(state, { type: 'COMPLETE_MOVE' })
+
+  const jailed = state.players[0]
+  ok('landing on Jail jails the player', jailed.inJail)
+  check('and leaves them on the Jail space', jailed.position, JAIL_INDEX)
+  ok('with no release owing to them', !jailed.jailReleasePending)
+  check('their movement is over', state.stage, 'awaitingEndTurn')
+  check('and the other phones are told', state.notice?.text, `${jailed.name} went to Jail.`)
+
+  // The turn passes to the next player; the jailed one is not asked anything.
+  while (state.popups.length) state = gameReducer(state, { type: 'DISMISS_POPUP' })
+  state = gameReducer(state, { type: 'END_TURN' })
+  check('the next player is up', state.turnOrder[state.currentIndex], state.players[1].id)
+  ok('and the jailed player is still in', state.players[0].inJail)
+
+  // On their own next turn they are offered exactly the two choices.
+  state = gameReducer(state, { type: 'END_TURN' })
+  check('back to the jailed player', state.turnOrder[state.currentIndex], jailed.id)
+  check('who is asked to choose', state.stage, 'inJail')
+  check('with a fresh set of three rolls', state.players[0].jailRolls, [])
+  check('and no movement roll available', state.pendingMove, null)
+}
+{
+  // Option 2 in full: pay $500 now, walk free at the start of the next turn.
+  let state = makeState(2)
+  state.players[0].inJail = true
+  state.players[0].position = JAIL_INDEX
+  state.stage = 'inJail'
+  const before = state.players[0].cash
+
+  state = gameReducer(state, { type: 'JAIL_PAY' })
+  check('the bank takes 500', before - state.players[0].cash, 500)
+  ok('still in Jail for the rest of this turn', state.players[0].inJail)
+  check('and the turn is over', state.stage, 'awaitingEndTurn')
+
+  while (state.popups.length) state = gameReducer(state, { type: 'DISMISS_POPUP' })
+  state = gameReducer(state, { type: 'END_TURN' })
+  state = gameReducer(state, { type: 'END_TURN' })
+  ok('free at the start of their next turn', !state.players[0].inJail)
+  check('and may roll and move as normal', state.stage, 'awaitingRoll')
+}
+{
+  // A roll on a later turn never opens the door by itself.
+  let state = makeState(2)
+  state.players[0].inJail = true
+  state.players[0].position = JAIL_INDEX
+  state.stage = 'inJail'
+
+  // Three rolls of 1: nowhere near 12.
+  const realRandom = Math.random
+  Math.random = () => 0
+  state = gameReducer(state, { type: 'JAIL_ROLL' })
+  state = gameReducer(state, { type: 'JAIL_ROLL' })
+  state = gameReducer(state, { type: 'JAIL_ROLL' })
+  Math.random = realRandom
+
+  while (state.popups.length) state = gameReducer(state, { type: 'DISMISS_POPUP' })
+  state = gameReducer(state, { type: 'END_TURN' })
+  state = gameReducer(state, { type: 'END_TURN' })
+  ok('a failed attempt leaves them in Jail', state.players[0].inJail)
+  check('and they are asked to choose again', state.stage, 'inJail')
+  check('with three fresh rolls', state.players[0].jailRolls, [])
 }
 
 // ===========================================================================
