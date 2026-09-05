@@ -14,5 +14,5 @@
  * An environment variable still wins where one is set, so a different project
  * can be pointed at (a test one, say) without editing code.
  */
-export const BUILT_IN_SUPABASE_URL = ''
-export const BUILT_IN_SUPABASE_ANON_KEY = ''
+export const BUILT_IN_SUPABASE_URL = 'https://jmdmmbymypekciwnpvvr.supabase.co'
+export const BUILT_IN_SUPABASE_ANON_KEY = 'sb_publishable_qJTeWy6pYtMylyi4Z6BOog__ZnWNWMi'
