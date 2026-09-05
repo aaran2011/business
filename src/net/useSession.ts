@@ -1,336 +1,346 @@
-import Peer, { type DataConnection } from 'peerjs'
+import type { RealtimeChannel } from '@supabase/supabase-js'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createInitialState, gameReducer } from '../engine/game'
 import type { GameAction, GameState } from '../engine/types'
 import {
+  deviceId,
   guestMayDo,
-  PEER_OPTIONS,
-  peerIdForCode,
+  JOIN_TIMEOUT_MS,
   redactFor,
+  roomFor,
   type NetMessage,
+  type SeatMap,
 } from './protocol'
+import { multiplayerConfigured, supabase } from './supabase'
 
 /**
  * Holds the game and, when more than one device is playing, keeps them in step.
  *
- * Three ways to be:
  *   solo  — one device, passed round the table. Nothing touches the network.
  *   host  — this device runs the rules and serves the board to the others.
  *   guest — this device shows the host's board and asks it to do things.
  *
- * The rules only ever run on the host, so there is one copy of the truth and
- * no way for two devices to disagree about who owns Iraq.
+ * Everything goes through a Supabase Realtime channel named after the game
+ * code, so devices never have to reach each other directly. Different Wi-Fi,
+ * mobile data and locked-down networks all work the same way.
  */
 export type NetRole = 'solo' | 'host' | 'guest'
 export type NetStatus = 'idle' | 'connecting' | 'ready' | 'error'
 
 export interface Session {
   state: GameState
-  /** Dispatch as usual — on a guest this asks the host instead. */
   dispatch: (action: GameAction) => void
   role: NetRole
   status: NetStatus
   error: string | null
-  /** The seat this device controls. Null on the host and before claiming. */
+  /** The seat this device plays. */
   myPlayerId: string | null
-  /** Seats already taken by a phone, so two people cannot claim one player. */
-  takenSeats: string[]
-  /**
-   * Whether this device is the one that plays a given seat. On the host that
-   * is every seat no phone has taken; on a phone it is only its own.
-   */
+  /** Whether this device is the one that plays a given seat. */
   controlsPlayer: (playerId: string) => boolean
-  /** How many phones are connected to this host. */
+  /** True on the device running the game (and in solo play). */
+  isHost: boolean
+  /** How many phones have joined this host. */
   guestCount: number
+  multiplayerAvailable: boolean
   startHosting: () => void
   joinGame: (code: string) => void
-  /** Guest: add myself to the host's lobby. */
   addMe: (name: string, colourId: string) => void
-  /** Guest: change my own name or colour. */
   editMe: (patch: { name?: string; colourId?: string }) => void
-  /** Guest: try the last code again after a failure. */
-  retryJoin: () => void
   leave: () => void
 }
 
 export function useSession(): Session {
-  const [state, rawDispatch] = useState<GameState>(() => createInitialState())
+  const [state, setState] = useState<GameState>(() => createInitialState())
   const [role, setRole] = useState<NetRole>('solo')
   const [status, setStatus] = useState<NetStatus>('idle')
   const [error, setError] = useState<string | null>(null)
   const [myPlayerId, setMyPlayerId] = useState<string | null>(null)
-  const [takenSeats, setTakenSeats] = useState<string[]>([])
-  const [guestCount, setGuestCount] = useState(0)
+  const [seats, setSeats] = useState<SeatMap>({})
 
-  const peerRef = useRef<Peer | null>(null)
-  /** Host: every connected phone, and which seat it claimed. */
-  const guestsRef = useRef<Map<string, { conn: DataConnection; playerId: string | null }>>(
-    new Map(),
-  )
-  /** Guest: the single channel back to the host. */
-  const hostConnRef = useRef<DataConnection | null>(null)
-  /** The code last tried, so "Try again" needs no retyping. */
-  const lastCodeRef = useRef<string | null>(null)
-  /** Always the newest game, for use inside callbacks that were made earlier. */
+  const me = useRef(deviceId()).current
+  const channelRef = useRef<RealtimeChannel | null>(null)
+  /** Host only: which device plays which seat. Survives a guest reconnecting. */
+  const seatsRef = useRef<SeatMap>({})
+  /** Cleared the moment the host's first state arrives. */
+  const joinTimerRef = useRef<number | null>(null)
   const stateRef = useRef(state)
   stateRef.current = state
   const roleRef = useRef(role)
   roleRef.current = role
 
-  // ---------------------------------------------------------------- host ---
-
-  const broadcast = useCallback((next: GameState) => {
-    for (const [, guest] of guestsRef.current) {
-      if (!guest.conn.open) continue
-      const message: NetMessage = {
-        t: 'state',
-        state: redactFor(next, guest.playerId),
-        seats: [...guestsRef.current.values()]
-          .map((g) => g.playerId)
-          .filter((id): id is string => id !== null),
-      }
-      guest.conn.send(message)
-    }
+  const send = useCallback((message: NetMessage) => {
+    channelRef.current?.send({ type: 'broadcast', event: 'msg', payload: message })
   }, [])
+
+  // ------------------------------------------------------------------ host --
+
+  /** Send the game out, with each device's copy redacted for that device. */
+  const publish = useCallback(
+    (next: GameState, onlyTo: string | null = null) => {
+      const targets = onlyTo ? [onlyTo] : Object.keys(seatsRef.current)
+      for (const device of targets) {
+        send({
+          t: 'state',
+          forDevice: device,
+          state: redactFor(next, seatsRef.current[device] || null),
+          seats: seatsRef.current,
+        })
+      }
+    },
+    [send],
+  )
 
   /** The only place the rules ever run. */
   const applyLocally = useCallback(
     (action: GameAction) => {
-      rawDispatch((current) => {
+      setState((current) => {
         const next = gameReducer(current, action)
-        if (roleRef.current === 'host') broadcast(next)
+        if (roleRef.current === 'host') publish(next)
         return next
       })
     },
-    [broadcast],
+    [publish],
+  )
+
+  const handleHostMessage = useCallback(
+    (message: NetMessage) => {
+      const current = stateRef.current
+
+      if (message.t === 'hello') {
+        // A device arriving, or coming back after dropping out. If we already
+        // know its seat it gets the same player back, money and all.
+        if (!(message.deviceId in seatsRef.current)) seatsRef.current[message.deviceId] = ''
+        setSeats({ ...seatsRef.current })
+        const seat = seatsRef.current[message.deviceId]
+        if (seat) send({ t: 'seated', forDevice: message.deviceId, playerId: seat })
+        publish(current, message.deviceId)
+        return
+      }
+
+      if (message.t === 'addMe') {
+        const seated = seatsRef.current[message.deviceId]
+        if (seated) {
+          // A duplicate tap, or a rejoin: confirm the seat they already have.
+          send({ t: 'seated', forDevice: message.deviceId, playerId: seated })
+          publish(current, message.deviceId)
+          return
+        }
+        if (current.phase !== 'setup') {
+          send({
+            t: 'reject',
+            forDevice: message.deviceId,
+            reason: 'That game has already started.',
+          })
+          return
+        }
+        if (current.lobby.length >= current.settings.maxPlayers) {
+          send({ t: 'reject', forDevice: message.deviceId, reason: 'That game is full.' })
+          return
+        }
+        const id = `p${Math.random().toString(36).slice(2, 8)}`
+        seatsRef.current[message.deviceId] = id
+        setSeats({ ...seatsRef.current })
+        send({ t: 'seated', forDevice: message.deviceId, playerId: id })
+        applyLocally({
+          type: 'ADD_LOBBY_PLAYER',
+          id,
+          name: message.name,
+          colourId: message.colourId,
+        })
+        return
+      }
+
+      if (message.t === 'editMe') {
+        const seat = seatsRef.current[message.deviceId]
+        if (!seat) return
+        applyLocally({
+          type: 'UPDATE_LOBBY_PLAYER',
+          id: seat,
+          name: message.name,
+          colourId: message.colourId,
+        })
+        return
+      }
+
+      if (message.t === 'action') {
+        const seat = seatsRef.current[message.deviceId] || null
+        if (!guestMayDo(message.action, seat, current)) {
+          send({
+            t: 'reject',
+            forDevice: message.deviceId,
+            reason:
+              current.phase === 'playing' ? 'It is not your turn.' : 'Only the host can do that.',
+          })
+          return
+        }
+        applyLocally(message.action)
+      }
+    },
+    [applyLocally, publish, send],
+  )
+
+  // ----------------------------------------------------------------- guest --
+
+  const handleGuestMessage = useCallback(
+    (message: NetMessage) => {
+      if (message.t === 'state') {
+        if (message.forDevice && message.forDevice !== me) return
+        setState(message.state)
+        setSeats(message.seats)
+        setStatus('ready')
+        setError(null)
+        return
+      }
+      if (message.t === 'seated' && message.forDevice === me) {
+        setMyPlayerId(message.playerId)
+        setError(null)
+        return
+      }
+      if (message.t === 'reject' && message.forDevice === me) {
+        setError(message.reason)
+      }
+    },
+    [me],
+  )
+
+  // ------------------------------------------------------------ connecting --
+
+  const openChannel = useCallback(
+    (code: string, asHost: boolean, onReady: () => void, onFail: (why: string) => void) => {
+      channelRef.current?.unsubscribe()
+      const channel = supabase().channel(roomFor(code), {
+        config: { broadcast: { self: false } },
+      })
+      channelRef.current = channel
+
+      channel.on('broadcast', { event: 'msg' }, ({ payload }) => {
+        const message = payload as NetMessage
+        if (asHost) handleHostMessage(message)
+        else handleGuestMessage(message)
+      })
+
+      channel.subscribe((channelStatus) => {
+        if (channelStatus === 'SUBSCRIBED') onReady()
+        else if (channelStatus === 'CHANNEL_ERROR' || channelStatus === 'TIMED_OUT') {
+          onFail('Could not reach the game server. Check your connection and try again.')
+        }
+      })
+    },
+    [handleGuestMessage, handleHostMessage],
   )
 
   const startHosting = useCallback(() => {
-    if (peerRef.current) return
-    setStatus('connecting')
-    setError(null)
-
-    const peer = new Peer(peerIdForCode(stateRef.current.gameCode), PEER_OPTIONS)
-    peerRef.current = peer
-
-    peer.on('open', () => {
-      setRole('host')
-      setStatus('ready')
-    })
-
-    peer.on('connection', (conn) => {
-      conn.on('open', () => {
-        guestsRef.current.set(conn.connectionId, { conn, playerId: null })
-        setGuestCount(guestsRef.current.size)
-        conn.send({ t: 'state', state: redactFor(stateRef.current, null), seats: [] } as NetMessage)
-      })
-
-      conn.on('data', (raw) => {
-        const message = raw as NetMessage
-        const guest = guestsRef.current.get(conn.connectionId)
-        if (!guest) return
-
-        if (message.t === 'addMe') {
-          const current = stateRef.current
-          if (current.phase !== 'setup') return
-          if (current.lobby.length >= current.settings.maxPlayers) {
-            conn.send({ t: 'full' } as NetMessage)
-            return
-          }
-          // The host mints the id so two phones cannot generate the same one.
-          const id = `p${Date.now().toString(36)}${Math.floor(Math.random() * 1000)}`
-          guest.playerId = id
-          applyLocally({
-            type: 'ADD_LOBBY_PLAYER',
-            id,
-            name: message.name,
-            colourId: message.colourId,
-          })
-          setTakenSeats(
-            [...guestsRef.current.values()]
-              .map((g) => g.playerId)
-              .filter((id): id is string => id !== null),
-          )
-          conn.send({ t: 'claimed', playerId: id } as NetMessage)
-          return
-        }
-
-        if (message.t === 'editMe') {
-          // A phone may only ever edit its own seat.
-          if (!guest.playerId) return
-          applyLocally({
-            type: 'UPDATE_LOBBY_PLAYER',
-            id: guest.playerId,
-            name: message.name,
-            colourId: message.colourId,
-          })
-          return
-        }
-
-        if (message.t === 'action') {
-          // The host is the authority on what a phone may do — see guestMayDo.
-          if (!guestMayDo(message.action, guest.playerId, stateRef.current)) {
-            conn.send({
-              t: 'reject',
-              reason:
-                stateRef.current.phase === 'playing'
-                  ? 'It is not your turn.'
-                  : 'Only the host can do that.',
-            } as NetMessage)
-            return
-          }
-          applyLocally(message.action)
-        }
-      })
-
-      const drop = () => {
-        guestsRef.current.delete(conn.connectionId)
-        setGuestCount(guestsRef.current.size)
-        setTakenSeats(
-          [...guestsRef.current.values()]
-            .map((g) => g.playerId)
-            .filter((id): id is string => id !== null),
-        )
-      }
-      conn.on('close', drop)
-      conn.on('error', drop)
-    })
-
-    peer.on('error', (err) => {
-      // The commonest one by far: this code is already hosting somewhere.
-      const unavailable = String(err).includes('unavailable-id')
-      setError(
-        unavailable
-          ? 'That game code is already in use. Reload to get a new one.'
-          : `Could not start hosting: ${err.message ?? err}`,
-      )
+    if (!multiplayerConfigured) {
+      setError('Multiplayer is not set up on this build.')
       setStatus('error')
-    })
-  }, [applyLocally])
-
-  // --------------------------------------------------------------- guest ---
-
-  const joinGame = useCallback((code: string) => {
-    lastCodeRef.current = code
-    if (peerRef.current) {
-      peerRef.current.destroy()
-      peerRef.current = null
+      return
     }
+    if (channelRef.current && roleRef.current === 'host') return
     setStatus('connecting')
     setError(null)
-    setRole('guest')
-
-    // A guest takes whatever id the broker hands out.
-    const peer = new Peer(PEER_OPTIONS)
-    peerRef.current = peer
-
-    peer.on('open', () => {
-      const conn = peer.connect(peerIdForCode(code), { reliable: true })
-      hostConnRef.current = conn
-
-      // The host answered but the direct channel never opened — that is a
-      // network problem, not a wrong code, and saying so saves a lot of
-      // pointless re-typing.
-      const timeout = window.setTimeout(() => {
-        if (!conn.open) {
-          setError(
-            'Found the game, but could not open a connection. This is usually a network that blocks direct links — try both phones on the same Wi-Fi.',
-          )
-          setStatus('error')
-        }
-      }, 20000)
-
-      conn.on('open', () => {
-        window.clearTimeout(timeout)
-        setStatus('ready')
-        conn.send({ t: 'hello' } as NetMessage)
-      })
-
-      conn.on('data', (raw) => {
-        const message = raw as NetMessage
-        if (message.t === 'state') {
-          rawDispatch(message.state)
-          setTakenSeats(message.seats)
-        } else if (message.t === 'claimed') {
-          setMyPlayerId(message.playerId)
-          setError(null)
-        } else if (message.t === 'reject') {
-          setError(message.reason)
-        } else if (message.t === 'full') {
-          setError('That game is full.')
-        }
-      })
-
-      conn.on('close', () => {
-        setError('The host closed the game.')
+    setRole('host')
+    openChannel(
+      stateRef.current.gameCode,
+      true,
+      () => setStatus('ready'),
+      (why) => {
+        setError(why)
         setStatus('error')
-      })
-    })
+      },
+    )
+  }, [openChannel])
 
-    peer.on('error', (err) => {
-      const gone = String(err).includes('peer-unavailable')
-      setError(
-        gone
-          ? 'No game with that code. Check the code, and that the host still has the game open.'
-          : `Could not join: ${err.message ?? err}`,
+  const joinGame = useCallback(
+    (code: string) => {
+      if (!multiplayerConfigured) {
+        setError('Multiplayer is not set up on this build.')
+        setStatus('error')
+        return
+      }
+      setStatus('connecting')
+      setError(null)
+      setRole('guest')
+      setMyPlayerId(null)
+
+      // The host answering is what proves the game exists. If nothing comes
+      // back in time there is nothing to show, so we drop the whole attempt
+      // rather than leaving somebody sitting in an empty lobby.
+      const timer = window.setTimeout(() => {
+        channelRef.current?.unsubscribe()
+        channelRef.current = null
+        setRole('solo')
+        setStatus('error')
+        setError('No game with that code. Check the code and that the host still has it open.')
+      }, JOIN_TIMEOUT_MS)
+      joinTimerRef.current = timer
+
+      openChannel(
+        code,
+        false,
+        () => send({ t: 'hello', deviceId: me }),
+        (why) => {
+          window.clearTimeout(timer)
+          setRole('solo')
+          setError(why)
+          setStatus('error')
+        },
       )
-      setStatus('error')
-    })
+    },
+    [me, openChannel, send],
+  )
+
+  useEffect(() => {
+    if (status === 'ready' && joinTimerRef.current) {
+      window.clearTimeout(joinTimerRef.current)
+      joinTimerRef.current = null
+    }
+  }, [status])
+
+  const addMe = useCallback(
+    (name: string, colourId: string) => send({ t: 'addMe', deviceId: me, name, colourId }),
+    [me, send],
+  )
+
+  const editMe = useCallback(
+    (patch: { name?: string; colourId?: string }) => send({ t: 'editMe', deviceId: me, ...patch }),
+    [me, send],
+  )
+
+  const leave = useCallback(() => {
+    channelRef.current?.unsubscribe()
+    channelRef.current = null
+    seatsRef.current = {}
+    setRole('solo')
+    setStatus('idle')
+    setMyPlayerId(null)
+    setSeats({})
+    setError(null)
   }, [])
 
-  /** Try the same code again after a failure, without retyping it. */
-  const retryJoin = useCallback(() => {
-    if (lastCodeRef.current) joinGame(lastCodeRef.current)
-  }, [joinGame])
-
-  const addMe = useCallback((name: string, colourId: string) => {
-    hostConnRef.current?.send({ t: 'addMe', name, colourId } as NetMessage)
-  }, [])
-
-  const editMe = useCallback((patch: { name?: string; colourId?: string }) => {
-    hostConnRef.current?.send({ t: 'editMe', ...patch } as NetMessage)
-  }, [])
+  useEffect(() => () => void channelRef.current?.unsubscribe(), [])
 
   /**
    * The host plays every seat no phone has taken; a phone plays only its own.
-   * This is what stops the host rolling on somebody else's behalf.
+   * This is what stops the host acting on somebody else's behalf.
    */
   const controlsPlayer = useCallback(
     (playerId: string) => {
       if (roleRef.current === 'guest') return myPlayerId === playerId
-      return !takenSeats.includes(playerId)
+      return !Object.values(seats).includes(playerId)
     },
-    [myPlayerId, takenSeats],
+    [myPlayerId, seats],
   )
 
-  const leave = useCallback(() => {
-    peerRef.current?.destroy()
-    peerRef.current = null
-    hostConnRef.current = null
-    guestsRef.current.clear()
-    setRole('solo')
-    setStatus('idle')
-    setMyPlayerId(null)
-    setTakenSeats([])
-    setGuestCount(0)
-    setError(null)
-  }, [])
-
-  useEffect(() => () => peerRef.current?.destroy(), [])
-
-  /**
-   * On a guest, a dispatch is a request: the host decides and sends the game
-   * back. Everywhere else it just runs the rules here.
-   */
+  /** On a guest, a dispatch is a request; the host decides and sends back. */
   const dispatch = useCallback(
     (action: GameAction) => {
       if (roleRef.current === 'guest') {
-        hostConnRef.current?.send({ t: 'action', action } as NetMessage)
+        send({ t: 'action', deviceId: me, action })
         return
       }
       applyLocally(action)
     },
-    [applyLocally],
+    [applyLocally, me, send],
   )
 
   return {
@@ -340,14 +350,14 @@ export function useSession(): Session {
     status,
     error,
     myPlayerId,
-    takenSeats,
-    guestCount,
+    controlsPlayer,
+    isHost: role !== 'guest',
+    guestCount: Object.values(seats).filter(Boolean).length,
+    multiplayerAvailable: multiplayerConfigured,
     startHosting,
     joinGame,
     addMe,
     editMe,
-    retryJoin,
     leave,
-    controlsPlayer,
   }
 }

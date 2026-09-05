@@ -439,8 +439,7 @@ function confirmOrder(state: GameState): void {
   state.currentIndex = 0
   state.turnNumber = 1
   state.stage = 'awaitingRoll'
-  state.dice = null
-  state.lastTotal = null
+  // The opening rolls stay visible going into the first turn.
 
   addLog(
     state,
@@ -586,8 +585,8 @@ function advanceToNextPlayer(state: GameState): void {
 
     state.currentIndex = index
     state.turnNumber += 1
-    state.dice = null
-    state.lastTotal = null
+    // The rolled number stays on the table until the next roll. Clearing it
+    // dropped the die back to a blank 1, which looks like a stuck die.
     state.pendingMove = null
     state.pendingPurchase = null
     state.pendingBuild = null

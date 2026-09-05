@@ -310,14 +310,14 @@ button:disabled {
   align-items: center;
   justify-content: center;
   gap: 0.25cqi;
-  padding: 0.4cqi 0.4cqi 2.2cqi;
+  padding: 0.4cqi 0.3cqi 3.4cqi;
   min-height: 0;
 }
 
 .cell-name {
   font-weight: 800;
-  font-size: 1.46cqi;
-  line-height: 1.06;
+  font-size: 1.62cqi;
+  line-height: 1.05;
   letter-spacing: -0.02em;
   /*
    * Long single words (Switzerland, Petroleum) must never be cut off. Break
@@ -329,14 +329,14 @@ button:disabled {
 }
 
 .cell-price {
-  font-size: 1.36cqi;
+  font-size: 1.46cqi;
   color: var(--text-faint);
   font-variant-numeric: tabular-nums;
   font-weight: 700;
 }
 
 .cell-icon {
-  font-size: 3.2cqi;
+  font-size: 3.5cqi;
   line-height: 1;
 }
 
@@ -350,7 +350,7 @@ button:disabled {
 }
 
 .cell-flag {
-  font-size: 2.7cqi;
+  font-size: 3cqi;
   line-height: 1;
 }
 
@@ -358,10 +358,10 @@ button:disabled {
   position: absolute;
   top: 0.5cqi;
   right: 0.5cqi;
-  width: 1.7cqi;
-  height: 1.7cqi;
+  width: 2.4cqi;
+  height: 2.4cqi;
   border-radius: 50%;
-  border: 0.25cqi solid #fff;
+  border: 0.3cqi solid #fff;
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.25);
   z-index: 2;
 }
@@ -441,25 +441,8 @@ button:disabled {
 
 /* ------------------------------------------------- centrepiece: the globe */
 
-.centrepiece {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
 
-.globe-stage {
-  position: relative;
-  width: 30cqi;
-  height: 30cqi;
-}
 
-.globe {
-  width: 100%;
-  height: 100%;
-  display: block;
-  filter: drop-shadow(0 6px 14px rgba(28, 80, 160, 0.24));
-  animation: globe-bob 6s ease-in-out infinite;
-}
 
 @keyframes globe-bob {
   0%,
@@ -485,11 +468,6 @@ button:disabled {
   }
 }
 
-.orbit-ring {
-  transform-origin: 100px 100px;
-  animation: ring-spin 40s linear infinite;
-  opacity: 0.75;
-}
 
 @keyframes ring-spin {
   to {
@@ -498,38 +476,10 @@ button:disabled {
 }
 
 /* the six transport / utility assets circling the world */
-.orbit-field {
-  position: absolute;
-  inset: 0;
-  animation: ring-spin 26s linear infinite;
-}
 
-.orbiter {
-  position: absolute;
-  inset: 0;
-  transform: rotate(var(--a));
-}
 
-.orbiter-icon {
-  position: absolute;
-  top: -5%;
-  left: 50%;
-  font-size: 4.6cqi;
-  line-height: 1;
-  /* Counter-rotate so every icon sits upright at rest. */
-  transform: translateX(-50%) rotate(calc(-1 * var(--a)));
-  filter: drop-shadow(0 2px 3px rgba(28, 80, 160, 0.28));
-}
 
 @media (prefers-reduced-motion: reduce) {
-  .globe,
-  .landmass,
-  .orbit-ring,
-  .orbit-field,
-  .pawn.is-current,
-  .clock.is-low {
-    animation: none;
-  }
 }
 
 .centre-status {
@@ -603,7 +553,7 @@ button:disabled {
 }
 
 .dice-tray {
-  --die-size: 9cqi;
+  --die-size: 11cqi;
   --die-half: calc(var(--die-size) / 2);
   display: flex;
   align-items: center;
@@ -2372,5 +2322,124 @@ button:disabled {
   50% {
     opacity: 0.25;
     transform: scale(0.75);
+  }
+}
+
+/* ------------------------------------------------ board centre */
+
+.centrepiece {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.centre-wordmark {
+  font-size: 4.4cqi;
+  font-weight: 900;
+  letter-spacing: 0.4em;
+  text-indent: 0.4em;
+  background: linear-gradient(94deg, #ff4757, #ff9a3d 40%, #2e86ff 88%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  opacity: 0.5;
+}
+
+/* A property or event card opens here, in place of the dice. */
+.centre-card {
+  width: 100%;
+  max-width: 92%;
+  max-height: 100%;
+  overflow-y: auto;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+  animation: centre-card-in 0.22s cubic-bezier(0.2, 1.2, 0.4, 1);
+}
+
+@keyframes centre-card-in {
+  from {
+    opacity: 0;
+    transform: scale(0.94);
+  }
+}
+
+.centre-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 1.4cqi 1.8cqi;
+  border-bottom: 1px solid var(--line-soft);
+  background: var(--panel-alt);
+  font-size: 1.7cqi;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+/* A real button, big enough to hit with a thumb. */
+.centre-card-close {
+  margin-left: auto;
+  width: 4.6cqi;
+  height: 4.6cqi;
+  min-width: 26px;
+  min-height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  background: #fff;
+  color: var(--text-dim);
+  font-size: 2.4cqi;
+  line-height: 1;
+  font-weight: 800;
+}
+
+.centre-card-close:hover {
+  background: var(--bad-soft);
+  border-color: var(--bad);
+  color: var(--bad);
+}
+
+.centre-card-body {
+  padding: 1.6cqi;
+}
+
+.centre-card-foot {
+  display: flex;
+  gap: 1.2cqi;
+  padding: 1.4cqi 1.6cqi;
+  border-top: 1px solid var(--line-soft);
+  background: var(--panel-alt);
+  flex-wrap: wrap;
+}
+
+@media (max-width: 1080px) {
+  /* On a phone the board is the whole point: bigger dice, bigger labels. */
+  .dice-tray {
+    --die-size: 14cqi;
+  }
+
+  .cell-name {
+    font-size: 1.85cqi;
+  }
+
+  .cell-price {
+    font-size: 1.6cqi;
+  }
+
+  .pawn {
+    width: 5.2cqi;
+    height: 5.2cqi;
+    font-size: 2.8cqi;
+  }
+
+  .cell-owner {
+    width: 2.9cqi;
+    height: 2.9cqi;
   }
 }

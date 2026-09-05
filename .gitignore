@@ -3,3 +3,6 @@ dist
 .vercel
 .DS_Store
 *.local
+
+# Local Supabase keys
+.env.local

@@ -1,6 +1,6 @@
 import { canBuild } from '../engine/building'
 import { money } from '../engine/log'
-import { currentPlayer, debtOwedBy, displayNameOf } from '../engine/queries'
+import { currentPlayer, debtOwedBy, displayNameOf, ownedPropertyIds } from '../engine/queries'
 import type { GameAction, GameState } from '../engine/types'
 
 interface Props {
@@ -12,6 +12,8 @@ interface Props {
   onRemovePlayer: () => void
   /** False on a joined phone when it is somebody else's turn. */
   canAct: boolean
+  /** Only the device running the game gets the host controls. */
+  isHost: boolean
 }
 
 /**
@@ -26,6 +28,7 @@ export function ActionBar({
   onEndGame,
   onRemovePlayer,
   canAct,
+  isHost,
 }: Props) {
   if (state.phase !== 'playing') return null
 
@@ -52,6 +55,7 @@ export function ActionBar({
   const buildCheck = buildOffer
     ? canBuild(state, player.id, buildOffer.propertyId)
     : { allowed: false, reason: '', cost: 0, nextLabel: '' }
+  const ownsAnything = ownedPropertyIds(state, player.id).length > 0
 
   return (
     <div className="actionbar">
@@ -79,33 +83,27 @@ export function ActionBar({
         </>
       ) : null}
 
-      {purchase && (
+      {purchase && canAfford && (
         <>
-          <button
-            className="btn btn-good"
-            onClick={() => dispatch({ type: 'BUY_PROPERTY' })}
-            disabled={!canAfford}
-            title={
-              canAfford
-                ? undefined
-                : `${money(purchase.price)} needed, ${money(player.cash)} in hand.`
-            }
-          >
+          <button className="btn btn-good" onClick={() => dispatch({ type: 'BUY_PROPERTY' })}>
             Buy {displayNameOf(purchase.propertyId)} — {money(purchase.price)}
           </button>
           <button className="btn" onClick={() => dispatch({ type: 'DECLINE_PURCHASE' })}>
-            {canAfford ? "Don't buy" : 'Leave it with the Bank'}
+            Don't buy
           </button>
         </>
       )}
+      {purchase && !canAfford && (
+        <button className="btn" onClick={() => dispatch({ type: 'DECLINE_PURCHASE' })}>
+          Continue
+        </button>
+      )}
 
-      {buildOffer && (
+      {buildOffer && buildCheck.allowed && (
         <>
           <button
             className="btn btn-good"
             onClick={() => dispatch({ type: 'BUILD', propertyId: buildOffer.propertyId })}
-            disabled={!buildCheck.allowed}
-            title={buildCheck.reason}
           >
             Build {buildCheck.nextLabel || 'house'}
             {buildCheck.cost ? ` — ${money(buildCheck.cost)}` : ''}
@@ -115,10 +113,17 @@ export function ActionBar({
           </button>
         </>
       )}
+      {buildOffer && !buildCheck.allowed && (
+        <button className="btn" onClick={() => dispatch({ type: 'DECLINE_BUILD' })}>
+          Continue
+        </button>
+      )}
 
-      <button className="btn" onClick={onManage} disabled={busy}>
-        Build / Sell / Mortgage
-      </button>
+      {ownsAnything && (
+        <button className="btn" onClick={onManage} disabled={busy}>
+          Build / Sell / Mortgage
+        </button>
+      )}
 
       {inDebt && (
         <button
@@ -135,17 +140,19 @@ export function ActionBar({
         </button>
       )}
 
-      <button className="btn btn-ghost btn-sm" onClick={onHouseRules}>
-        House Rules
-      </button>
-
-      <button className="btn btn-ghost btn-sm" onClick={onRemovePlayer}>
-        Remove Player
-      </button>
-
-      <button className="btn btn-bad btn-sm" onClick={onEndGame}>
-        End Game
-      </button>
+      {isHost && (
+        <>
+          <button className="btn btn-ghost btn-sm" onClick={onHouseRules}>
+            House Rules
+          </button>
+          <button className="btn btn-ghost btn-sm" onClick={onRemovePlayer}>
+            Remove Player
+          </button>
+          <button className="btn btn-bad btn-sm" onClick={onEndGame}>
+            End Game
+          </button>
+        </>
+      )}
 
       <div className="action-hint">{hintFor(state)}</div>
     </div>
@@ -168,14 +175,9 @@ function hintFor(state: GameState): string {
     case 'awaitingPurchase': {
       if (!state.pendingPurchase) return ''
       const { propertyId, price } = state.pendingPurchase
-      const short = player.cash < price
-      return short
-        ? `${displayNameOf(propertyId)} costs ${money(price)} and you hold ${money(
-            player.cash,
-          )} — not enough to buy it. It stays with the Bank.`
-        : `${displayNameOf(propertyId)} is unowned at ${money(
-            price,
-          )}. Buy it, or leave it with the Bank — either way the turn then ends.`
+      return player.cash < price
+        ? `${displayNameOf(propertyId)} costs ${money(price)} — out of reach, so it stays with the Bank.`
+        : `${displayNameOf(propertyId)} is unowned at ${money(price)}.`
     }
     case 'awaitingBuild':
       return state.pendingBuild

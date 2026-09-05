@@ -1,58 +1,25 @@
 /**
- * The wire format between the host device and the phones that join it.
+ * What travels between the devices in a game.
  *
- * There is no server holding the game. One device — whoever set the game up —
- * is the host, and it is the only place the rules ever run. Phones that join
- * send what their player wants to do and render whatever the host sends back.
- * That keeps a single source of truth and means the rule engine never has to
- * know the network exists.
+ * There is no peer-to-peer any more. Every device talks to a Supabase Realtime
+ * channel named after the game code, and the server relays. That is what makes
+ * it work across different Wi-Fi, mobile data, and networks that block direct
+ * connections — no device ever has to reach another one directly.
+ *
+ * One device is still the host: it is the only place the rules run, so there is
+ * a single copy of the truth. The others send what their player wants to do and
+ * render whatever the host sends back. The rule engine never learns any of this
+ * exists.
  */
 
 import { leaderboard } from '../engine/queries'
 import type { GameAction, GameState } from '../engine/types'
 
-/**
- * How the two browsers find a path to each other.
- *
- * STUN alone is enough when both devices can see each other's public address,
- * which is the usual case on one home Wi-Fi. It is NOT enough behind symmetric
- * NAT — most mobile carriers, and plenty of guest and office networks — where
- * the handshake simply hangs. A TURN server relays the traffic in that case,
- * which is the difference between "one phone joined and the other never did"
- * and everybody getting in.
- *
- * Open Relay's TURN is free and needs no account. Swap in your own here if it
- * ever goes away; nothing else in the app has to change.
- */
-export const ICE_SERVERS: RTCIceServer[] = [
-  { urls: 'stun:stun.l.google.com:19302' },
-  { urls: 'stun:openrelay.metered.ca:80' },
-  {
-    urls: 'turn:openrelay.metered.ca:80',
-    username: 'openrelayproject',
-    credential: 'openrelayproject',
-  },
-  {
-    urls: 'turn:openrelay.metered.ca:443',
-    username: 'openrelayproject',
-    credential: 'openrelayproject',
-  },
-  {
-    // TCP/443 looks like ordinary HTTPS, so it survives the strictest firewalls.
-    urls: 'turn:openrelay.metered.ca:443?transport=tcp',
-    username: 'openrelayproject',
-    credential: 'openrelayproject',
-  },
-]
+/** Channel names are namespaced so a code cannot collide with another app. */
+export const ROOM_PREFIX = 'business-'
 
-/** Shared by both ends, so host and guest agree on how to connect. */
-export const PEER_OPTIONS = { config: { iceServers: ICE_SERVERS } }
-
-/** Namespaced so the short game code cannot collide with another app's peer. */
-export const PEER_PREFIX = 'intlbusiness-'
-
-export function peerIdForCode(code: string): string {
-  return PEER_PREFIX + code.trim().toUpperCase()
+export function roomFor(code: string): string {
+  return ROOM_PREFIX + code.trim().toUpperCase()
 }
 
 /** Codes are typed in by hand, so accept lower case and stray spaces. */
@@ -62,48 +29,64 @@ export function normaliseCode(input: string): string {
 
 export const CODE_LENGTH = 6
 
+/** How long a join waits before giving up and sending the player home. */
+export const JOIN_TIMEOUT_MS = 5000
+
+/** Which device is playing which seat, so a rejoin can be matched up. */
+export type SeatMap = Record<string, string>
+
 export type NetMessage =
-  /** guest -> host, first thing after the channel opens */
-  | { t: 'hello' }
-  /** guest -> host, adding themselves to the lobby with their own name+colour */
-  | { t: 'addMe'; name: string; colourId: string }
-  /** guest -> host, changing their own name or colour in the lobby */
-  | { t: 'editMe'; name?: string; colourId?: string }
-  /** host -> guest, confirming which seat this device now controls */
-  | { t: 'claimed'; playerId: string }
-  /** host -> guest, the lobby is full */
-  | { t: 'full' }
-  /** host -> guest, the whole game as that guest is allowed to see it */
-  | { t: 'state'; state: GameState; seats: string[] }
-  /** guest -> host, "my player would like to do this" */
-  | { t: 'action'; action: GameAction }
-  /** host -> guest, something was refused, with a reason worth showing */
-  | { t: 'reject'; reason: string }
+  /** guest -> room: I am here; `deviceId` reclaims my seat if I had one. */
+  | { t: 'hello'; deviceId: string }
+  /** host -> room: the whole game, addressed to one device (or everyone). */
+  | { t: 'state'; forDevice: string | null; state: GameState; seats: SeatMap }
+  /** guest -> room: add me to the lobby with my own name and colour. */
+  | { t: 'addMe'; deviceId: string; name: string; colourId: string }
+  /** guest -> room: change my own name or colour. */
+  | { t: 'editMe'; deviceId: string; name?: string; colourId?: string }
+  /** host -> room: this device now plays this seat. */
+  | { t: 'seated'; forDevice: string; playerId: string }
+  /** guest -> room: my player would like to do this. */
+  | { t: 'action'; deviceId: string; action: GameAction }
+  /** host -> room: refused, with a reason worth showing. */
+  | { t: 'reject'; forDevice: string; reason: string }
 
 /**
- * Strip the parts of the game a given device is not entitled to see.
- *
- * Every player's cash is private to their own phone. The host device is the
- * banker and necessarily sees the whole board, but no guest ever receives
- * another player's balance — it is removed here, before it is sent, so it is
- * not merely hidden in their UI.
+ * A stable id for this browser, kept in localStorage. It is what lets someone
+ * who closed the tab or lost signal come back to the same seat with their
+ * money and properties intact, rather than arriving as a brand new player.
  */
-export function redactFor(state: GameState, viewerPlayerId: string | null): GameState {
-  return {
-    ...maskCashExcept(state, (id) => id === viewerPlayerId),
-    // Ranked here, on the host, while the real balances are still available.
-    leaderboardOrder: leaderboard(state).map((row) => row.player.id),
+export function deviceId(): string {
+  const KEY = 'business.deviceId'
+  try {
+    const existing = localStorage.getItem(KEY)
+    if (existing) return existing
+    const fresh = `d${Math.random().toString(36).slice(2)}${Date.now().toString(36)}`
+    localStorage.setItem(KEY, fresh)
+    return fresh
+  } catch {
+    // Storage blocked (private browsing): a per-session id still works, it
+    // just cannot survive a reload.
+    return `d${Math.random().toString(36).slice(2)}`
   }
 }
 
 /**
- * Hide every balance this device has no business seeing — including on the
- * host. The host has to hold the real numbers to run the bank, but it should
- * not be showing them on screen for players who are on their own phones.
+ * Strip the balances a device is not entitled to see.
  *
- * `isVisible` is normally the session's `controlsPlayer`, so a device sees the
- * cash of the seats it actually plays and nobody else's.
+ * Every player's cash is private to the device that plays that seat. This runs
+ * on the host before sending, so another player's balance never reaches the
+ * wire, and again on each device before rendering (`maskCashExcept`), so the
+ * host does not display what it must hold in order to run the bank.
  */
+export function redactFor(state: GameState, viewerPlayerId: string | null): GameState {
+  return {
+    ...maskCashExcept(state, (id) => id === viewerPlayerId),
+    // Ranked here, while the real balances are still available.
+    leaderboardOrder: leaderboard(state).map((row) => row.player.id),
+  }
+}
+
 export function maskCashExcept(
   state: GameState,
   isVisible: (playerId: string) => boolean,
@@ -121,9 +104,9 @@ export function maskCashExcept(
 /**
  * What a joined phone is allowed to ask the host to do.
  *
- * The host is the authority, so this is the one place that decides. A phone
- * may only ever touch its own seat, and only the device running the game may
- * start it, end it, remove people or change the rules.
+ * The host is the authority, so this is the one place that decides. A phone may
+ * only ever touch its own seat and its own deeds, and only the host may run the
+ * game itself.
  */
 export function guestMayDo(
   action: GameAction,
@@ -141,6 +124,14 @@ export function guestMayDo(
     // Everyone takes their own opening roll, and only their own.
     case 'ROLL_FOR_ORDER':
       return state.phase === 'orderRoll' && action.playerId === guestPlayerId
+
+    // Your own deeds are yours to build on, sell and mortgage — and nobody
+    // else's ever are.
+    case 'MORTGAGE':
+    case 'UNMORTGAGE':
+    case 'SELL_BUILDING':
+    case 'BUILD':
+      return state.holdings[action.propertyId]?.ownerId === guestPlayerId
 
     // Host-only: running the game itself.
     case 'START_GAME':

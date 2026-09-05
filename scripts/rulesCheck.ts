@@ -1372,23 +1372,50 @@ console.log('— Each player rolls their own opening die —')
   }
   state = gameReducer(state, { type: 'START_GAME' })
 
+  // Three different faces, so no tie sends anyone back for a re-roll.
+  const realRandom = Math.random
+  const queue = [0.0, 0.5, 0.99] // -> 1, 4, 6
+  let nth = 0
+  Math.random = () => queue[Math.min(nth++, queue.length - 1)]
+
   // Rolling names a player, so one device cannot roll for everyone.
   state = gameReducer(state, { type: 'ROLL_FOR_ORDER', playerId: 'b' })
   check('only the named player rolled', state.orderRolls.map((e) => e.dice !== null), [false, true, false])
+  check('and it is the face that was rolled', state.orderRolls[1].total, 1)
 
   // Rolling twice for the same player changes nothing.
-  const bTotal = state.orderRolls.find((e) => e.playerId === 'b')!.total
   state = gameReducer(state, { type: 'ROLL_FOR_ORDER', playerId: 'b' })
-  check('a player cannot roll twice', state.orderRolls.find((e) => e.playerId === 'b')!.total, bTotal)
+  check('a player cannot roll twice', state.orderRolls[1].total, 1)
 
   state = gameReducer(state, { type: 'ROLL_FOR_ORDER', playerId: 'a' })
   state = gameReducer(state, { type: 'ROLL_FOR_ORDER', playerId: 'c' })
+  Math.random = realRandom
+
   ok('everyone has now rolled', state.orderRolls.every((e) => e.dice !== null))
+  check('each got their own face', state.orderRolls.map((e) => e.total), [4, 1, 6])
 
   // A player not in the roll-off cannot roll.
   const before = JSON.stringify(state.orderRolls)
   state = gameReducer(state, { type: 'ROLL_FOR_ORDER', playerId: 'nobody' })
   check('an unknown player cannot roll', JSON.stringify(state.orderRolls), before)
+}
+{
+  // A tie sends only the tied players back, and the round counter moves on.
+  let state = createInitialState()
+  for (const id of ['a', 'b']) {
+    state = gameReducer(state, { type: 'ADD_LOBBY_PLAYER', id, name: id.toUpperCase(), colourId: 'crimson' })
+  }
+  state = gameReducer(state, { type: 'START_GAME' })
+
+  const realRandom = Math.random
+  Math.random = () => 0.99 // both roll a 6
+  state = gameReducer(state, { type: 'ROLL_FOR_ORDER', playerId: 'a' })
+  state = gameReducer(state, { type: 'ROLL_FOR_ORDER', playerId: 'b' })
+  Math.random = realRandom
+
+  check('a tie clears both rolls for a re-roll', state.orderRolls.map((e) => e.dice), [null, null])
+  check('and starts a fresh round', state.orderRollRound, 2)
+  check('with both still in the running', state.orderContenders.sort(), ['a', 'b'])
 }
 
 // ===========================================================================
@@ -1433,6 +1460,23 @@ console.log('— What a joined phone is allowed to do —')
   ok('may NOT set the timer', !guestMayDo({ type: 'SET_TIMER', durationMs: 60000 }, upNow, state))
   ok('may NOT reset the game', !guestMayDo({ type: 'RESET' }, upNow, state))
   ok('may NOT push a whole state across', !guestMayDo({ type: 'NET_SYNC', state }, upNow, state))
+}
+{
+  // Your own deeds only — nobody may touch another player's property.
+  const state = makeState(2)
+  const [a, b] = state.players
+  give(state, a.id, 'egypt')
+  give(state, b.id, 'japan')
+
+  ok('may mortgage their own country', guestMayDo({ type: 'MORTGAGE', propertyId: 'egypt' }, a.id, state))
+  ok('may NOT mortgage someone else’s', !guestMayDo({ type: 'MORTGAGE', propertyId: 'japan' }, a.id, state))
+  ok('may unmortgage their own', guestMayDo({ type: 'UNMORTGAGE', propertyId: 'egypt' }, a.id, state))
+  ok('may NOT unmortgage someone else’s', !guestMayDo({ type: 'UNMORTGAGE', propertyId: 'japan' }, a.id, state))
+  ok('may build on their own', guestMayDo({ type: 'BUILD', propertyId: 'egypt' }, a.id, state))
+  ok('may NOT build on someone else’s', !guestMayDo({ type: 'BUILD', propertyId: 'japan' }, a.id, state))
+  ok('may sell buildings on their own', guestMayDo({ type: 'SELL_BUILDING', propertyId: 'egypt' }, a.id, state))
+  ok('may NOT sell someone else’s buildings', !guestMayDo({ type: 'SELL_BUILDING', propertyId: 'japan' }, a.id, state))
+  ok('may NOT touch an unowned space', !guestMayDo({ type: 'MORTGAGE', propertyId: 'iraq' }, a.id, state))
 }
 {
   // Redaction really removes the numbers rather than hiding them.
@@ -1483,6 +1527,42 @@ console.log('— No device shows a balance it does not play —')
   // The real state is untouched — the rules still run on the true numbers.
   check('masking does not mutate the game', state.players.map((p) => p.cash), [11111, 22222, 33333])
   void b
+}
+
+// ===========================================================================
+console.log('— The rolled number stays on the table —')
+// ===========================================================================
+
+{
+  // Clearing the dice between turns made the die snap back to a blank 1,
+  // which is what "the dice keep returning 1" actually was.
+  let state = makeState(2)
+  state = gameReducer(state, { type: 'ROLL_DICE' })
+  const rolled = state.lastTotal
+  const shown = state.dice
+  ok('a roll produced a number', typeof rolled === 'number' && rolled >= 1 && rolled <= 6)
+
+  state = gameReducer(state, { type: 'COMPLETE_MOVE' })
+  while (state.popups.length) state = gameReducer(state, { type: 'DISMISS_POPUP' })
+  if (state.stage === 'awaitingPurchase') state = gameReducer(state, { type: 'DECLINE_PURCHASE' })
+  if (state.stage === 'awaitingBuild') state = gameReducer(state, { type: 'DECLINE_BUILD' })
+  state = gameReducer(state, { type: 'END_TURN' })
+
+  check('the number survives into the next turn', state.lastTotal, rolled)
+  check('and so do the dice faces', state.dice, shown)
+  ok('so nothing ever falls back to a blank 1', state.dice !== null)
+}
+{
+  // A roll of 1 must move exactly one space.
+  const state = makeState(2)
+  const realRandom = Math.random
+  Math.random = () => 0 // lowest face
+  const rolled = gameReducer(state, { type: 'ROLL_DICE' })
+  Math.random = realRandom
+  check('rolling a 1 reads as 1', rolled.lastTotal, 1)
+  check('and moves exactly one space', rolled.pendingMove!.steps, 1)
+  const moved = gameReducer(rolled, { type: 'COMPLETE_MOVE' })
+  check('landing one space along', moved.players[moved.currentIndex].position, 1)
 }
 
 // ===========================================================================

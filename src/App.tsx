@@ -42,6 +42,11 @@ export default function App() {
   const [showTimer, setShowTimer] = useState(false)
   const [showRemove, setShowRemove] = useState(false)
   const [remainingMs, setRemainingMs] = useState<number | null>(null)
+  /**
+   * A beat after the token stops before a card opens, so you can see where you
+   * actually landed instead of it being covered instantly.
+   */
+  const [settled, setSettled] = useState(true)
 
   /** Bumped once per throw so each die picks a fresh spin. */
   const [rollId, setRollId] = useState(0)
@@ -90,6 +95,8 @@ export default function App() {
       setDisplayPositions((prev) => ({ ...prev, [playerId]: (from + step) % BOARD_SIZE }))
       if (step >= steps) {
         window.clearInterval(timer)
+        setSettled(false)
+        window.setTimeout(() => setSettled(true), state.settings.landingPauseMs)
         // The guest animates the pawn to match, but the host decides when the
         // move is finished — otherwise two devices resolve the same landing.
         if (!isGuestRef.current) dispatch({ type: 'COMPLETE_MOVE' })
@@ -204,6 +211,8 @@ export default function App() {
       state={viewState}
       dispatch={act}
       canAct={session.controlsPlayer(state.turnOrder[state.currentIndex])}
+      isHost={session.isHost}
+      settled={settled}
       seatName={state.players.find((p) => p.id === session.myPlayerId)?.name ?? null}
       rolling={rolling}
       rollId={rollId}
@@ -228,6 +237,10 @@ interface PlayingViewProps {
   dispatch: Dispatch
   /** False on a phone whose player is not the one to move. */
   canAct: boolean
+  /** Only the device running the game gets the host controls. */
+  isHost: boolean
+  /** False for a beat after the token lands, so the landing stays visible. */
+  settled: boolean
   /** The seat this phone is playing, when it joined with a code. */
   seatName: string | null
   rolling: boolean
@@ -250,6 +263,8 @@ function PlayingView({
   state,
   dispatch,
   canAct,
+  isHost,
+  settled,
   seatName,
   rolling,
   rollId,
@@ -350,6 +365,92 @@ function PlayingView({
                 : ''
           }
           dieColour={player.colourHex}
+          centreCard={
+            cardId && !popup && !state.paused && settled ? (
+              <div className="centre-card">
+                <div className="centre-card-head">
+                  <span>
+                    {buildOffer?.propertyId === cardId ? 'Your property' : 'Property'}
+                  </span>
+                  <button
+                    type="button"
+                    className="centre-card-close"
+                    aria-label="Close card"
+                    onClick={() => {
+                      setSelectedProperty(null)
+                      if (offeredToMe?.propertyId === cardId) {
+                        dispatch({ type: 'DECLINE_PURCHASE' })
+                      } else if (buildOffer?.propertyId === cardId) {
+                        dispatch({ type: 'DECLINE_BUILD' })
+                      }
+                    }}
+                  >
+                    ×
+                  </button>
+                </div>
+
+                <div className="centre-card-body">
+                  {buildOffer?.propertyId === cardId && (
+                    <BuildOffer state={state} playerId={player.id} propertyId={cardId} />
+                  )}
+                  <PropertyCard state={state} propertyId={cardId} />
+                </div>
+
+                <div className="centre-card-foot">
+                  {offeredToMe?.propertyId === cardId && player.cash >= offeredToMe.price ? (
+                    <>
+                      <button
+                        className="btn btn-good btn-sm"
+                        onClick={() => dispatch({ type: 'BUY_PROPERTY' })}
+                      >
+                        Buy for {money(offeredToMe.price)}
+                      </button>
+                      <button
+                        className="btn btn-sm"
+                        onClick={() => dispatch({ type: 'DECLINE_PURCHASE' })}
+                      >
+                        Don't buy
+                      </button>
+                    </>
+                  ) : offeredToMe?.propertyId === cardId ? (
+                    <button
+                      className="btn btn-sm"
+                      onClick={() => dispatch({ type: 'DECLINE_PURCHASE' })}
+                    >
+                      Continue
+                    </button>
+                  ) : buildOffer?.propertyId === cardId && buildCheck?.allowed ? (
+                    <>
+                      <button
+                        className="btn btn-good btn-sm"
+                        onClick={() => dispatch({ type: 'BUILD', propertyId: cardId })}
+                      >
+                        Build {buildCheck.nextLabel || 'house'}
+                        {buildCheck.cost ? ` — ${money(buildCheck.cost)}` : ''}
+                      </button>
+                      <button
+                        className="btn btn-sm"
+                        onClick={() => dispatch({ type: 'DECLINE_BUILD' })}
+                      >
+                        Not now
+                      </button>
+                    </>
+                  ) : buildOffer?.propertyId === cardId ? (
+                    <button
+                      className="btn btn-sm"
+                      onClick={() => dispatch({ type: 'DECLINE_BUILD' })}
+                    >
+                      Continue
+                    </button>
+                  ) : (
+                    <button className="btn btn-sm" onClick={() => setSelectedProperty(null)}>
+                      Close
+                    </button>
+                  )}
+                </div>
+              </div>
+            ) : undefined
+          }
           centreExtra={
             state.stage === 'inJail' || player.jailRolls.length > 0 ? (
               <JailDice
@@ -371,6 +472,7 @@ function PlayingView({
         state={state}
         dispatch={dispatch}
         canAct={canAct}
+        isHost={isHost}
         onManage={() => setShowManage(true)}
         onHouseRules={() => setShowHouseRules(true)}
         onEndGame={() => dispatch({ type: 'END_GAME' })}
@@ -385,84 +487,6 @@ function PlayingView({
           state={state}
           onDismiss={() => dispatch({ type: 'DISMISS_POPUP' })}
         />
-      )}
-
-      {cardId && !popup && !state.paused && (
-        <div className="overlay" onClick={() => setSelectedProperty(null)}>
-          <div className="modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-head">
-              <div className="modal-title">
-                {buildOffer?.propertyId === cardId ? 'Your property' : 'Property card'}
-              </div>
-              <button className="close-x" onClick={() => setSelectedProperty(null)}>
-                ×
-              </button>
-            </div>
-
-            {/* Whose turn it is, who would be buying, and what they hold. */}
-            <div className="buyer-bar">
-              <span className="player-token" style={{ background: player.colourHex }}>
-                {player.name.charAt(0).toUpperCase()}
-              </span>
-              <div className="buyer-who">
-                <span className="buyer-label">
-                  {offeredToMe?.propertyId === cardId ? "Buying \u2014 it's their turn" : 'Current turn'}
-                </span>
-                <strong>{player.name}</strong>
-              </div>
-              <div className="buyer-cash">
-                <span className="buyer-label">Cash in hand</span>
-                <strong>{money(player.cash)}</strong>
-              </div>
-            </div>
-            <div className="modal-body">
-              {buildOffer?.propertyId === cardId && (
-                <BuildOffer state={state} playerId={player.id} propertyId={cardId} />
-              )}
-              <PropertyCard state={state} propertyId={cardId} />
-            </div>
-            <div className="modal-foot">
-              {offeredToMe?.propertyId === cardId ? (
-                <>
-                  {player.cash < offeredToMe.price && (
-                    <span className="foot-note">
-                      {money(offeredToMe.price)} needed — you hold {money(player.cash)}.
-                    </span>
-                  )}
-                  <button
-                    className="btn btn-good"
-                    disabled={player.cash < offeredToMe.price}
-                    onClick={() => dispatch({ type: 'BUY_PROPERTY' })}
-                  >
-                    Buy for {money(offeredToMe.price)}
-                  </button>
-                  <button className="btn" onClick={() => dispatch({ type: 'DECLINE_PURCHASE' })}>
-                    {player.cash < offeredToMe.price ? 'Leave it with the Bank' : "Don't buy"}
-                  </button>
-                </>
-              ) : buildOffer?.propertyId === cardId ? (
-                <>
-                  <button
-                    className="btn btn-good"
-                    disabled={!buildCheck?.allowed}
-                    title={buildCheck?.reason}
-                    onClick={() => dispatch({ type: 'BUILD', propertyId: cardId })}
-                  >
-                    Build {buildCheck?.nextLabel || 'house'}
-                    {buildCheck?.cost ? ` — ${money(buildCheck.cost)}` : ''}
-                  </button>
-                  <button className="btn" onClick={() => dispatch({ type: 'DECLINE_BUILD' })}>
-                    Not now
-                  </button>
-                </>
-              ) : (
-                <button className="btn" onClick={() => setSelectedProperty(null)}>
-                  Close
-                </button>
-              )}
-            </div>
-          </div>
-        </div>
       )}
 
       {showManage && (

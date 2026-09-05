@@ -170,6 +170,12 @@ export interface GameSettings {
 
   /** Milliseconds per board space during pawn movement. */
   moveStepMs: number
+  /**
+   * How long the token sits on its new space before a card opens over the
+   * middle of the board. Without this the landing is covered instantly and you
+   * never see where you actually went.
+   */
+  landingPauseMs: number
 }
 
 export const DEFAULT_SETTINGS: GameSettings = {
@@ -233,6 +239,7 @@ export const DEFAULT_SETTINGS: GameSettings = {
 
   // Deliberately unhurried, so the pawn can be followed space by space.
   moveStepMs: 320,
+  landingPauseMs: 1400,
 }
 
 /** Durations offered by the Timer button, in minutes. */

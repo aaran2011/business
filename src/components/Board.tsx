@@ -61,6 +61,11 @@ interface BoardProps {
   dieColour?: string
   /** Extra centre content, e.g. the three Jail escape dice. */
   centreExtra?: ReactNode
+  /**
+   * A property or event card. When present it takes over the middle of the
+   * board and the dice step aside, rather than a sheet covering everything.
+   */
+  centreCard?: ReactNode
   onSelectSpace: (propertyId: string) => void
 }
 
@@ -75,6 +80,7 @@ export function Board({
   rollPrompt,
   dieColour,
   centreExtra,
+  centreCard,
   onSelectSpace,
 }: BoardProps) {
   const activeIndex =
@@ -162,8 +168,10 @@ export function Board({
         })}
 
         <div className="board-centre">
-          <BoardCentre />
-          <DiceTray
+          {centreCard ?? (
+            <>
+              <BoardCentre />
+              <DiceTray
             dice={state.dice}
             rolling={rolling}
             rollId={rollId}
@@ -172,10 +180,12 @@ export function Board({
             colour={dieColour}
             onRoll={onRoll}
             canRoll={canRoll}
-            prompt={rollPrompt}
-          />
-          {centreExtra}
-          <div className="centre-status">{centreStatus}</div>
+                prompt={rollPrompt}
+              />
+              {centreExtra}
+              <div className="centre-status">{centreStatus}</div>
+            </>
+          )}
         </div>
 
         <div className="pawn-layer">
@@ -183,9 +193,11 @@ export function Board({
             if (player.isOut) return null
             const index = displayPositions[player.id] ?? player.position
             const rect = cellRectFor(index)
-            // Up to 6 pawns share a space — lay them out in a 3x2 grid inside it.
-            const col = i % 3
-            const row = Math.floor(i / 3)
+            // Pawns sit low in the space, below the name and price, so they
+            // never cover the information you need to read.
+            const perRow = 3
+            const col = i % perRow
+            const row = Math.floor(i / perRow)
             const isCurrent =
               state.phase === 'playing' && state.turnOrder[state.currentIndex] === player.id
             return (
@@ -193,8 +205,8 @@ export function Board({
                 key={player.id}
                 className={`pawn${isCurrent ? ' is-current' : ''}`}
                 style={{
-                  left: `${rect.left + rect.width * (0.22 + col * 0.28)}%`,
-                  top: `${rect.top + rect.height * (0.58 + row * 0.22)}%`,
+                  left: `${rect.left + rect.width * (0.2 + col * 0.3)}%`,
+                  top: `${rect.top + rect.height * (0.74 + row * 0.13)}%`,
                   background: player.colourHex,
                 }}
                 title={player.name}
