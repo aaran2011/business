@@ -11,8 +11,23 @@ export function addLog(state: GameState, kind: LogKind, text: string): void {
  * Queue a popup. Popups do not replace one another — crossing START and then
  * landing on Chance shows the round-complete card first, then the Chance card.
  */
-export function setPopup(state: GameState, body: PopupBody): void {
-  state.popups.push({ id: state.nextPopupId++, body })
+export function setPopup(
+  state: GameState,
+  body: PopupBody,
+  affects: string | null = null,
+  summary?: string,
+): void {
+  state.popups.push({ id: state.nextPopupId++, body, affects, summary })
+}
+
+/**
+ * The sentence shown on every device: who, how much, and why. Deliberately
+ * spelled out — "Chance -$500" tells the other players nothing useful.
+ */
+export function moneySentence(name: string, delta: number, reason: string): string {
+  if (delta === 0) return `${name}: ${reason}.`
+  const verb = delta > 0 ? 'received' : 'lost'
+  return `${name} ${verb} ${money(Math.abs(delta))} — ${reason}.`
 }
 
 /** The popup currently on screen, if any. */

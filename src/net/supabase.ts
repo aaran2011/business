@@ -16,6 +16,18 @@ const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined
 
 export const multiplayerConfigured = Boolean(url && anonKey)
 
+/**
+ * What to tell somebody staring at a Home screen that will not host a game.
+ * Naming the exact missing variables turns "it is broken" into a two-minute
+ * fix in the hosting dashboard.
+ */
+export function multiplayerSetupHint(): string {
+  const missing = [!url && 'VITE_SUPABASE_URL', !anonKey && 'VITE_SUPABASE_ANON_KEY'].filter(
+    Boolean,
+  )
+  return `This build has no game server. Add ${missing.join(' and ')} to the site's environment variables and redeploy — playing on one device works without it.`
+}
+
 let client: SupabaseClient | null = null
 
 export function supabase(): SupabaseClient {

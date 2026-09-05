@@ -11,7 +11,7 @@ import {
   type NetMessage,
   type SeatMap,
 } from './protocol'
-import { multiplayerConfigured, supabase } from './supabase'
+import { multiplayerConfigured, multiplayerSetupHint, supabase } from './supabase'
 
 /**
  * Holds the game and, when more than one device is playing, keeps them in step.
@@ -63,10 +63,28 @@ export function useSession(): Session {
   const seatsRef = useRef<SeatMap>({})
   /** Cleared the moment the host's first state arrives. */
   const joinTimerRef = useRef<number | null>(null)
+  /**
+   * The game we are in and how to get back into it.
+   *
+   * A phone loses its connection all the time — the screen locks, the app goes
+   * to the background, the train goes into a tunnel, Wi-Fi hands over to
+   * mobile data. None of that should end anybody's game, so once a device has
+   * been in a game it keeps trying to get back in, and the host gives it the
+   * same seat back because it recognises the device id.
+   */
+  const codeRef = useRef<string | null>(null)
+  /** True once this device has actually been in the game, not just dialling. */
+  const joinedRef = useRef(false)
+  const retryTimerRef = useRef<number | null>(null)
+  const retryCountRef = useRef(0)
   const stateRef = useRef(state)
   stateRef.current = state
   const roleRef = useRef(role)
   roleRef.current = role
+  const statusRef = useRef(status)
+  statusRef.current = status
+  /** Bumped by every message the host sends us, to prove the line is alive. */
+  const lastMessageRef = useRef(0)
 
   const send = useCallback((message: NetMessage) => {
     channelRef.current?.send({ type: 'broadcast', event: 'msg', payload: message })
@@ -183,8 +201,10 @@ export function useSession(): Session {
 
   const handleGuestMessage = useCallback(
     (message: NetMessage) => {
+      lastMessageRef.current += 1
       if (message.t === 'state') {
         if (message.forDevice && message.forDevice !== me) return
+        joinedRef.current = true
         setState(message.state)
         setSeats(message.seats)
         setStatus('ready')
@@ -221,7 +241,11 @@ export function useSession(): Session {
 
       channel.subscribe((channelStatus) => {
         if (channelStatus === 'SUBSCRIBED') onReady()
-        else if (channelStatus === 'CHANNEL_ERROR' || channelStatus === 'TIMED_OUT') {
+        else if (
+          channelStatus === 'CHANNEL_ERROR' ||
+          channelStatus === 'TIMED_OUT' ||
+          channelStatus === 'CLOSED'
+        ) {
           onFail('Could not reach the game server. Check your connection and try again.')
         }
       })
@@ -229,9 +253,86 @@ export function useSession(): Session {
     [handleGuestMessage, handleHostMessage],
   )
 
+  /**
+   * Get back into the game we were already in.
+   *
+   * The game is not abandoned and nothing is reset: the board stays on screen
+   * while this runs, and the moment the channel is back the host is asked for
+   * the current state, which comes back with this device's own seat, money and
+   * properties exactly as they were.
+   */
+  const reconnect = useCallback(() => {
+    const code = codeRef.current
+    if (!code || !joinedRef.current) return
+    if (retryTimerRef.current !== null) return
+
+    const asHost = roleRef.current === 'host'
+    // Quick at first, then backing off, so a blip is invisible and a long
+    // outage does not hammer the server. It never gives up on its own.
+    const wait = Math.min(400 * 2 ** retryCountRef.current, 5000)
+    retryCountRef.current += 1
+    setStatus('connecting')
+
+    retryTimerRef.current = window.setTimeout(() => {
+      retryTimerRef.current = null
+      if (!codeRef.current || !joinedRef.current) return
+      openChannel(
+        code,
+        asHost,
+        () => {
+          retryCountRef.current = 0
+          setError(null)
+          if (asHost) {
+            setStatus('ready')
+            publish(stateRef.current)
+          } else {
+            // The host answering with the state is what makes us ready again.
+            send({ t: 'hello', deviceId: me })
+          }
+        },
+        () => reconnect(),
+      )
+    }, wait)
+  }, [me, openChannel, publish, send])
+
+  /**
+   * A locked phone stops talking. Rather than wait for the next failure, try
+   * the moment the player looks at their screen again or the network returns.
+   */
+  useEffect(() => {
+    const wake = () => {
+      if (!joinedRef.current) return
+      retryCountRef.current = 0
+      if (statusRef.current === 'ready') {
+        // The channel may look fine and be dead. Prod it, and only rebuild it
+        // if nothing comes back — rebuilding a healthy channel every time the
+        // player switches apps would interrupt the game for no reason.
+        if (roleRef.current === 'host') publish(stateRef.current)
+        else {
+          send({ t: 'hello', deviceId: me })
+          const answeredAt = lastMessageRef.current
+          window.setTimeout(() => {
+            if (lastMessageRef.current === answeredAt) reconnect()
+          }, 2500)
+        }
+        return
+      }
+      reconnect()
+    }
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') wake()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('online', wake)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('online', wake)
+    }
+  }, [me, publish, reconnect, send])
+
   const startHosting = useCallback(() => {
     if (!multiplayerConfigured) {
-      setError('Multiplayer is not set up on this build.')
+      setError(multiplayerSetupHint())
       setStatus('error')
       return
     }
@@ -239,35 +340,53 @@ export function useSession(): Session {
     setStatus('connecting')
     setError(null)
     setRole('host')
+    roleRef.current = 'host'
+    codeRef.current = stateRef.current.gameCode
+    retryCountRef.current = 0
     openChannel(
       stateRef.current.gameCode,
       true,
-      () => setStatus('ready'),
+      () => {
+        joinedRef.current = true
+        setStatus('ready')
+      },
       (why) => {
+        // Once the game is open, losing the line is a hiccup to ride out, not
+        // a reason to close it and lose everybody who has joined.
+        if (joinedRef.current) {
+          reconnect()
+          return
+        }
         setError(why)
         setStatus('error')
       },
     )
-  }, [openChannel])
+  }, [openChannel, reconnect])
 
   const joinGame = useCallback(
     (code: string) => {
       if (!multiplayerConfigured) {
-        setError('Multiplayer is not set up on this build.')
+        setError(multiplayerSetupHint())
         setStatus('error')
         return
       }
       setStatus('connecting')
       setError(null)
       setRole('guest')
+      roleRef.current = 'guest'
       setMyPlayerId(null)
+      codeRef.current = code
+      joinedRef.current = false
+      retryCountRef.current = 0
 
       // The host answering is what proves the game exists. If nothing comes
       // back in time there is nothing to show, so we drop the whole attempt
       // rather than leaving somebody sitting in an empty lobby.
       const timer = window.setTimeout(() => {
+        if (joinedRef.current) return
         channelRef.current?.unsubscribe()
         channelRef.current = null
+        codeRef.current = null
         setRole('solo')
         setStatus('error')
         setError('No game with that code. Check the code and that the host still has it open.')
@@ -279,14 +398,21 @@ export function useSession(): Session {
         false,
         () => send({ t: 'hello', deviceId: me }),
         (why) => {
+          // Dropping out of a game we are already in is a reconnection, not a
+          // failed join: the board stays up and we quietly get back in.
+          if (joinedRef.current) {
+            reconnect()
+            return
+          }
           window.clearTimeout(timer)
+          codeRef.current = null
           setRole('solo')
           setError(why)
           setStatus('error')
         },
       )
     },
-    [me, openChannel, send],
+    [me, openChannel, reconnect, send],
   )
 
   useEffect(() => {
@@ -307,6 +433,14 @@ export function useSession(): Session {
   )
 
   const leave = useCallback(() => {
+    // Deliberately walking away is the one thing that stops the reconnecting.
+    codeRef.current = null
+    joinedRef.current = false
+    retryCountRef.current = 0
+    if (retryTimerRef.current !== null) {
+      window.clearTimeout(retryTimerRef.current)
+      retryTimerRef.current = null
+    }
     channelRef.current?.unsubscribe()
     channelRef.current = null
     seatsRef.current = {}
@@ -318,6 +452,22 @@ export function useSession(): Session {
   }, [])
 
   useEffect(() => () => void channelRef.current?.unsubscribe(), [])
+
+  /**
+   * A way to pull the plug on purpose, so that losing the connection can be
+   * tested rather than hoped about. Development only — it is compiled out of
+   * the built game.
+   */
+  useEffect(() => {
+    if (!import.meta.env.DEV) return
+    const w = window as unknown as { businessDropConnection?: () => void }
+    w.businessDropConnection = () => {
+      channelRef.current?.unsubscribe()
+      channelRef.current = null
+      reconnect()
+    }
+    return () => void delete w.businessDropConnection
+  }, [reconnect])
 
   /**
    * The host plays every seat no phone has taken; a phone plays only its own.

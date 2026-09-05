@@ -208,10 +208,12 @@ export function announceTransfer(
   title: string,
   legs: TransferLeg[],
   note?: string,
+  affects: string | null = null,
+  summary?: string,
 ): void {
   const real = legs.filter((l) => l.amount > 0 && l.fromId && l.toId)
   if (!real.length) return
-  setPopup(state, { kind: 'transfer', title, legs: real, note })
+  setPopup(state, { kind: 'transfer', title, legs: real, note }, affects, summary)
 }
 
 /**

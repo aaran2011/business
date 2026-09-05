@@ -136,6 +136,13 @@ export type PopupBody =
 export interface Popup {
   id: number
   body: PopupBody
+  /**
+   * Whose money or turn this card is about. Only that player's device gets an
+   * actionable Continue button; everyone else just reads what happened.
+   */
+  affects: string | null
+  /** Plain sentence: "Priya lost $500 for House Repairs." */
+  summary?: string
 }
 
 export interface OrderRollEntry {

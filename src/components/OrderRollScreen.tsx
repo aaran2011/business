@@ -53,7 +53,7 @@ export function OrderRollScreen({
               count={state.settings.dice.count}
               rollId={rollId}
               durationMs={state.settings.dice.rollAnimationMs}
-              label="Roll"
+              label="Rolled"
             />
           </div>
 

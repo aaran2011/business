@@ -172,14 +172,14 @@ export function Board({
             <>
               <BoardCentre />
               <DiceTray
-            dice={state.dice}
-            rolling={rolling}
-            rollId={rollId}
-            count={state.settings.dice.count}
-            durationMs={state.settings.dice.rollAnimationMs}
-            colour={dieColour}
-            onRoll={onRoll}
-            canRoll={canRoll}
+                dice={state.dice}
+                rolling={rolling}
+                rollId={rollId}
+                count={state.settings.dice.count}
+                durationMs={state.settings.dice.rollAnimationMs}
+                colour={dieColour}
+                onRoll={onRoll}
+                canRoll={canRoll}
                 prompt={rollPrompt}
               />
               {centreExtra}

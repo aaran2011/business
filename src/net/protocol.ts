@@ -150,6 +150,14 @@ export function guestMayDo(
     case 'NET_SYNC':
       return false
 
+    // A card is dismissed by the player it is about, who is often NOT the
+    // player whose turn it is — Party House takes money off everyone.
+    case 'DISMISS_POPUP': {
+      const top = state.popups[0]
+      if (!top) return false
+      return top.affects === null || top.affects === guestPlayerId
+    }
+
     // Everything else is a move in the game: only on your own turn.
     default:
       return state.phase === 'playing' && state.turnOrder[state.currentIndex] === guestPlayerId

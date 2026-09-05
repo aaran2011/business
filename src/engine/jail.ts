@@ -15,7 +15,7 @@
  */
 
 import { rollJailDice } from './dice'
-import { addLog, money, setPopup } from './log'
+import { addLog, money, moneySentence, setPopup } from './log'
 import { transferMoney } from './payments'
 import { getPlayer } from './queries'
 import type { GameState } from './types'
@@ -30,13 +30,18 @@ export function payToEscapeJail(state: GameState, playerId: string): boolean {
   earnRelease(state, playerId)
 
   addLog(state, 'jail', `${player.name} paid ${money(fee)} and leaves Jail next turn.`)
-  setPopup(state, {
-    kind: 'simple',
-    icon: '\u{1F513}',
-    title: 'OUT NEXT TURN',
-    subtitle: `Paid the Bank ${money(fee)}. ${player.name} walks free at the start of their next turn.`,
-    delta: -fee,
-  })
+  setPopup(
+    state,
+    {
+      kind: 'simple',
+      icon: '\u{1F513}',
+      title: 'OUT NEXT TURN',
+      subtitle: `Paid the Bank ${money(fee)}. ${player.name} walks free at the start of their next turn.`,
+      delta: -fee,
+    },
+    playerId,
+    moneySentence(player.name, -fee, 'paying to leave Jail'),
+  )
   return true
 }
 

@@ -58,14 +58,12 @@ export function JoinPanel({ session, onBack }: { session: Session; onBack: () =>
                 }}
               />
               {session.status === 'connecting' && (
-                <div className="host-status is-connecting">
-                  Connecting to the game… this can take a few seconds.
-                </div>
+                <div className="host-status is-connecting">Joining…</div>
               )}
               {session.error && <div className="join-error">{session.error}</div>}
               <div style={{ display: 'flex', gap: 10, marginTop: 14 }}>
                 <button className="btn" onClick={onBack}>
-                  Back
+                  {session.error ? 'Home' : 'Back'}
                 </button>
                 <button
                   className="btn btn-primary"

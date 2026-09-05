@@ -180,6 +180,36 @@ export default function App() {
   // A guest stays on the join screen until they have actually taken a seat —
   // including after the host starts, since the seats only exist from then on.
   const seatedGuest = isGuest && session.myPlayerId !== null
+
+  /**
+   * Connected, but the game began before this device took a seat. There is
+   * nothing for them to play, so say so plainly rather than leaving them
+   * watching a board they can never touch.
+   */
+  if (isGuest && !seatedGuest && state.phase !== 'setup') {
+    return (
+      <div className="setup-shell">
+        <div className="setup-hero">
+          <h1>Game already started</h1>
+          <p>This game began before you took a seat, so there is no player for you.</p>
+        </div>
+        <div className="panel">
+          <div className="panel-body" style={{ display: 'flex', justifyContent: 'center' }}>
+            <button
+              className="btn btn-primary"
+              onClick={() => {
+                session.leave()
+                setShowJoin(false)
+              }}
+            >
+              Back to the start
+            </button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
   if (showJoin && !seatedGuest) {
     return <JoinPanel session={{ ...session, dispatch: act }} onBack={() => setShowJoin(false)} />
   }
@@ -212,7 +242,9 @@ export default function App() {
       dispatch={act}
       canAct={session.controlsPlayer(state.turnOrder[state.currentIndex])}
       isHost={session.isHost}
+      reconnecting={session.status === 'connecting'}
       settled={settled}
+      controlsPlayer={session.controlsPlayer}
       seatName={state.players.find((p) => p.id === session.myPlayerId)?.name ?? null}
       rolling={rolling}
       rollId={rollId}
@@ -239,8 +271,12 @@ interface PlayingViewProps {
   canAct: boolean
   /** Only the device running the game gets the host controls. */
   isHost: boolean
+  /** True while this device is quietly getting back into the game. */
+  reconnecting: boolean
   /** False for a beat after the token lands, so the landing stays visible. */
   settled: boolean
+  /** Whether this device plays a given seat. */
+  controlsPlayer: (playerId: string) => boolean
   /** The seat this phone is playing, when it joined with a code. */
   seatName: string | null
   rolling: boolean
@@ -264,8 +300,10 @@ function PlayingView({
   dispatch,
   canAct,
   isHost,
+  reconnecting,
   settled,
   seatName,
+  controlsPlayer,
   rolling,
   rollId,
   displayPositions,
@@ -313,17 +351,27 @@ function PlayingView({
 
   return (
     <div className="app">
+      {/*
+        The clock is for everyone; setting it and changing the rules are the
+        host's job, so a joined phone is not shown buttons it cannot use.
+      */}
       <header className="topbar">
-        <button className="btn btn-sm" onClick={() => setShowTimer(true)}>
-          {'\u{23F1}\u{FE0F}'} Timer
-        </button>
+        {isHost && (
+          <button className="btn btn-sm" onClick={() => setShowTimer(true)}>
+            {'\u{23F1}\u{FE0F}'} Timer
+          </button>
+        )}
         {remainingMs !== null && (
           <span className={`clock${lowTime ? ' is-low' : ''}`}>{formatClock(remainingMs)}</span>
         )}
+        {/* Says what is happening instead of throwing anybody out of the game. */}
+        {reconnecting && <span className="reconnecting">Reconnecting…</span>}
         <div className="topbar-spacer" />
-        <button className="btn btn-sm btn-ghost" onClick={() => setShowHouseRules(true)}>
-          House Rules
-        </button>
+        {isHost && (
+          <button className="btn btn-sm btn-ghost" onClick={() => setShowHouseRules(true)}>
+            House Rules
+          </button>
+        )}
       </header>
 
       {owed > 0 && (
@@ -366,7 +414,51 @@ function PlayingView({
           }
           dieColour={player.colourHex}
           centreCard={
-            cardId && !popup && !state.paused && settled ? (
+            /*
+              One slot in the middle of the board, and a clear order of who
+              gets it: a card about what just happened first, then Jail, then
+              the property you are being asked about.
+            */
+            popup && !state.paused ? (
+              <EventPopup
+                popup={popup}
+                state={state}
+                mine={popup.affects === null || controlsPlayer(popup.affects)}
+                onDismiss={() => dispatch({ type: 'DISMISS_POPUP' })}
+              />
+            ) : state.stage === 'inJail' && !popup && !state.paused ? (
+              <div className="centre-card jail-card">
+                <div className="centre-card-head">
+                  <span>{'\u{1F46E}'} Jail</span>
+                </div>
+                <div className="centre-card-body">
+                  <div className="jail-who">
+                    <span className="player-token" style={{ background: player.colourHex }}>
+                      {player.name.charAt(0).toUpperCase()}
+                    </span>
+                    <strong>{player.name} is in Jail</strong>
+                  </div>
+                  <p className="jail-explain">
+                    {canAct ? 'You are' : 'They are'} locked up and cannot move.{' '}
+                    {canAct ? 'To get out you' : 'To get out they'} must either pay{' '}
+                    {money(state.settings.jail.payToEscape)} to the bank, or roll one die{' '}
+                    {state.settings.jail.escapeDieRolls} times and total{' '}
+                    {state.settings.jail.escapeTargetTotal} or more. Either way the release takes
+                    effect on {canAct ? 'your' : 'their'} next turn.
+                  </p>
+                  {player.jailRolls.length > 0 && (
+                    <JailDice
+                      rolls={player.jailRolls}
+                      slots={state.settings.jail.escapeDieRolls}
+                      target={state.settings.jail.escapeTargetTotal}
+                    />
+                  )}
+                  {!canAct && (
+                    <div className="jail-waiting">Waiting for {player.name} to choose.</div>
+                  )}
+                </div>
+              </div>
+            ) : cardId && !popup && !state.paused && settled ? (
               <div className="centre-card">
                 <div className="centre-card-head">
                   <span>
@@ -464,7 +556,7 @@ function PlayingView({
         />
 
         <div className="side-col">
-          <Leaderboard state={state} dispatch={dispatch} />
+          <Leaderboard state={state} dispatch={dispatch} isHost={isHost} />
         </div>
       </div>
 
@@ -480,14 +572,6 @@ function PlayingView({
       />
 
       {state.paused && <PauseOverlay dispatch={dispatch} />}
-
-      {popup && !state.paused && (
-        <EventPopup
-          popup={popup}
-          state={state}
-          onDismiss={() => dispatch({ type: 'DISMISS_POPUP' })}
-        />
-      )}
 
       {showManage && (
         <ManageModal state={state} dispatch={dispatch} onClose={() => setShowManage(false)} />

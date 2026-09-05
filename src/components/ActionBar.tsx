@@ -32,6 +32,8 @@ export function ActionBar({
 }: Props) {
   if (state.phase !== 'playing') return null
 
+  // Waiting your turn. The host still runs the game while somebody else plays,
+  // so its controls stay put rather than disappearing for most of the game.
   if (!canAct) {
     return (
       <div className="actionbar">
@@ -39,6 +41,7 @@ export function ActionBar({
           <span className="not-your-turn-label">Not your turn</span>
           <span>{currentPlayer(state).name} is playing — wait for your go.</span>
         </div>
+        {isHost && <HostControls {...{ onHouseRules, onRemovePlayer, onEndGame }} />}
       </div>
     )
   }
@@ -140,22 +143,35 @@ export function ActionBar({
         </button>
       )}
 
-      {isHost && (
-        <>
-          <button className="btn btn-ghost btn-sm" onClick={onHouseRules}>
-            House Rules
-          </button>
-          <button className="btn btn-ghost btn-sm" onClick={onRemovePlayer}>
-            Remove Player
-          </button>
-          <button className="btn btn-bad btn-sm" onClick={onEndGame}>
-            End Game
-          </button>
-        </>
-      )}
+      {isHost && <HostControls {...{ onHouseRules, onRemovePlayer, onEndGame }} />}
 
       <div className="action-hint">{hintFor(state)}</div>
     </div>
+  )
+}
+
+/** House Rules, Remove Player and End Game. Never rendered on a joined phone. */
+function HostControls({
+  onHouseRules,
+  onRemovePlayer,
+  onEndGame,
+}: {
+  onHouseRules: () => void
+  onRemovePlayer: () => void
+  onEndGame: () => void
+}) {
+  return (
+    <>
+      <button className="btn btn-ghost btn-sm" onClick={onHouseRules}>
+        House Rules
+      </button>
+      <button className="btn btn-ghost btn-sm" onClick={onRemovePlayer}>
+        Remove Player
+      </button>
+      <button className="btn btn-bad btn-sm" onClick={onEndGame}>
+        End Game
+      </button>
+    </>
   )
 }
 

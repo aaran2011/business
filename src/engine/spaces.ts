@@ -11,7 +11,7 @@ import { CHANCE_CARDS } from '../data/chanceCards'
 import { COUNTRIES } from '../data/properties'
 import { SPECIAL_ASSETS } from '../data/specialAssets'
 import { UNO_CARDS, type EventCard } from '../data/unoCards'
-import { addLog, money, setPopup } from './log'
+import { addLog, money, moneySentence, setPopup } from './log'
 import { moveDirectlyTo } from './movement'
 import { announceTransfer, charge, credit, transferMoney } from './payments'
 import {
@@ -144,6 +144,8 @@ export function handlePropertyLanding(
       `Rent — ${name}`,
       [{ fromId: playerId, toId: owner.id, amount: rent.amount }],
       rent.label,
+      playerId,
+      moneySentence(player.name, -rent.amount, `rent on ${name} to ${owner.name}`),
     )
   }
 }
@@ -309,7 +311,12 @@ function applyCard(
     }
   }
 
-  setPopup(state, { kind: 'card', deck, card, total, delta })
+  setPopup(
+    state,
+    { kind: 'card', deck, card, total, delta },
+    playerId,
+    moneySentence(player.name, delta ?? 0, card.title),
+  )
   announceTransfer(state, card.title.toUpperCase(), transferLegs, transferNote)
 }
 
@@ -328,13 +335,18 @@ export function handlePartyHouse(state: GameState, playerId: string): void {
     'event',
     `${player.name} landed on Party House and collected ${money(amount)} from each player (${money(total)} total).`,
   )
-  setPopup(state, {
-    kind: 'simple',
-    icon: '\u{1F389}',
-    title: 'PARTY HOUSE',
-    subtitle: `Collect ${money(amount)} from every other player.`,
-    delta: total,
-  })
+  setPopup(
+    state,
+    {
+      kind: 'simple',
+      icon: '\u{1F389}',
+      title: 'PARTY HOUSE',
+      subtitle: `Collect ${money(amount)} from every other player.`,
+      delta: total,
+    },
+    playerId,
+    moneySentence(player.name, total, `Party House — ${money(amount)} from each player`),
+  )
   announceTransfer(state, 'PARTY HOUSE', legs, `${money(amount)} from each player`)
 }
 
@@ -349,13 +361,18 @@ export function handleResort(state: GameState, playerId: string): void {
     'event',
     `${player.name} landed on Resort and paid ${money(amount)} to each player (${money(total)} total).`,
   )
-  setPopup(state, {
-    kind: 'simple',
-    icon: '\u{1F3D6}️',
-    title: 'RESORT',
-    subtitle: `Pay ${money(amount)} to every other player.`,
-    delta: -total,
-  })
+  setPopup(
+    state,
+    {
+      kind: 'simple',
+      icon: '\u{1F3D6}️',
+      title: 'RESORT',
+      subtitle: `Pay ${money(amount)} to every other player.`,
+      delta: -total,
+    },
+    playerId,
+    moneySentence(player.name, -total, `Resort — ${money(amount)} to each player`),
+  )
   announceTransfer(state, 'RESORT', legs, `${money(amount)} to each player`)
 }
 
@@ -439,15 +456,20 @@ function applyDuty(
       countries === 1 ? 'y' : 'ies'
     } x ${money(perCountry)}${raw > max ? `, capped at ${money(max)}` : ''}).`,
   )
-  setPopup(state, {
-    kind: 'simple',
-    icon,
-    title,
-    subtitle: `${countries} countr${countries === 1 ? 'y' : 'ies'} owned x ${money(perCountry)}${
-      raw > max ? ` — capped at ${money(max)}` : ''
-    }`,
-    delta: -amount,
-  })
+  setPopup(
+    state,
+    {
+      kind: 'simple',
+      icon,
+      title,
+      subtitle: `${countries} countr${countries === 1 ? 'y' : 'ies'} owned x ${money(perCountry)}${
+        raw > max ? ` — capped at ${money(max)}` : ''
+      }`,
+      delta: -amount,
+    },
+    playerId,
+    moneySentence(player.name, -amount, title.toLowerCase()),
+  )
 }
 
 // ---------------------------------------------------------------------------

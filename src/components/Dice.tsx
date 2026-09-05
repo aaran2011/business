@@ -187,9 +187,14 @@ export function DiceTray({
           colour={colour}
         />
       ))}
+      {/*
+        "Roll" is an instruction, so it only appears on the device that can
+        actually roll. Everyone else sees the number that was rolled, which
+        stays on the table until the next roll.
+      */}
       <div className={`die-total${!rolling && dice ? ' is-settled' : ''}`} key={rollId}>
         {rolling || !dice ? '—' : total}
-        <small>{shown.length > 1 ? 'Total' : label}</small>
+        <small>{shown.length > 1 ? 'Total' : onRoll && !canRoll ? 'Rolled' : label}</small>
       </div>
     </div>
   )

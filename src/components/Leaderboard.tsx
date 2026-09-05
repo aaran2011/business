@@ -10,9 +10,12 @@ import type { GameAction, GameState } from '../engine/types'
 export function Leaderboard({
   state,
   dispatch,
+  isHost,
 }: {
   state: GameState
   dispatch: (action: GameAction) => void
+  /** Pausing is the host's call, so the button is host-only. */
+  isHost: boolean
 }) {
   // A joined phone has not been sent everyone's cash, so it cannot rank them
   // itself — the host does that and sends the order along with the game.
@@ -29,15 +32,19 @@ export function Leaderboard({
     <div className="panel">
       <div className="panel-head">
         <span>Leaderboard</span>
-        <button
-          className={`btn btn-sm pause-btn${pauseRequested ? ' is-armed' : ''}`}
-          onClick={() =>
-            dispatch({ type: pauseRequested ? 'CANCEL_PAUSE' : 'REQUEST_PAUSE' })
-          }
-          title="Pause the game when the next turn begins"
-        >
-          {pauseRequested ? '\u{23F3} Pausing…' : '\u{23F8}\u{FE0F} Pause on Next Turn'}
-        </button>
+        {isHost ? (
+          <button
+            className={`btn btn-sm pause-btn${pauseRequested ? ' is-armed' : ''}`}
+            onClick={() =>
+              dispatch({ type: pauseRequested ? 'CANCEL_PAUSE' : 'REQUEST_PAUSE' })
+            }
+            title="Pause the game when the next turn begins"
+          >
+            {pauseRequested ? '\u{23F3} Pausing…' : '\u{23F8}\u{FE0F} Pause on Next Turn'}
+          </button>
+        ) : (
+          pauseRequested && <span className="pause-note">{'\u{23F3}'} Pausing…</span>
+        )}
       </div>
 
       {rows.map(({ player, assets }, i) => (

@@ -20,6 +20,7 @@ import { buildOneStep, canBuild, sellBuilding } from '../src/engine/building'
 import { diceTotal, rollDice } from '../src/engine/dice'
 import { createInitialState, gameReducer, makeGameCode } from '../src/engine/game'
 import { attemptJailEscape } from '../src/engine/jail'
+import { setPopup } from '../src/engine/log'
 import { mortgageProperty, unmortgageProperty } from '../src/engine/mortgage'
 import { movePlayer } from '../src/engine/movement'
 import { charge } from '../src/engine/payments'
@@ -457,6 +458,18 @@ check('UNO covers totals 2..12', Object.keys(UNO_CARDS).map(Number).sort((x, y) 
   const before = a.cash
   handleUno(state, a.id, 7)
   check('UNO 7 has no effect (no Passport system)', a.cash - before, 0)
+}
+{
+  // The Jail card in the middle of the board is drawn from `stage === 'inJail'`
+  // and the player's own escape rolls, so both are pinned here.
+  let state = makeState(2)
+  state.players[0].inJail = true
+  state.stage = 'awaitingEndTurn'
+  state = gameReducer(state, { type: 'END_TURN' })
+  state = gameReducer(state, { type: 'END_TURN' })
+  check('a jailed player opens their turn in Jail', state.stage, 'inJail')
+  check('with no escape rolls yet', state.players[0].jailRolls, [])
+  check('and cannot simply roll and move', state.pendingMove, null)
 }
 {
   const state = makeState(2)
@@ -1460,6 +1473,24 @@ console.log('— What a joined phone is allowed to do —')
   ok('may NOT set the timer', !guestMayDo({ type: 'SET_TIMER', durationMs: 60000 }, upNow, state))
   ok('may NOT reset the game', !guestMayDo({ type: 'RESET' }, upNow, state))
   ok('may NOT push a whole state across', !guestMayDo({ type: 'NET_SYNC', state }, upNow, state))
+}
+{
+  // A card about somebody's money is theirs to close, even when it is not
+  // their turn — Party House and Resort take money off everyone at once.
+  const state = makeState(2)
+  const upNow = state.turnOrder[state.currentIndex]
+  const other = state.turnOrder[1]
+
+  setPopup(state, { kind: 'simple', title: 'X', subtitle: 'y' }, other, 'they lost money')
+  ok('the player a card is about may close it', guestMayDo({ type: 'DISMISS_POPUP' }, other, state))
+  ok('somebody else may NOT close their card', !guestMayDo({ type: 'DISMISS_POPUP' }, upNow, state))
+
+  state.popups = []
+  setPopup(state, { kind: 'simple', title: 'X', subtitle: 'y' })
+  ok('a card about nobody in particular may be closed by anyone', guestMayDo({ type: 'DISMISS_POPUP' }, upNow, state))
+
+  state.popups = []
+  ok('with no card up there is nothing to close', !guestMayDo({ type: 'DISMISS_POPUP' }, upNow, state))
 }
 {
   // Your own deeds only — nobody may touch another player's property.
