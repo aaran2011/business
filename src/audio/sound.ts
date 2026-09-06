@@ -1,19 +1,18 @@
 /**
  * Sound.
  *
- * Everything here is synthesised in the browser with the Web Audio API — there
- * is not a single audio file in the project. That is deliberate three times
- * over: nothing to download, so it works offline the moment the page does;
- * nothing copyrighted, because every note is generated here; and nothing to
- * cache, so the game stays small.
+ * There is NO background music. It was removed at Aaran's request — a loop
+ * playing under a board game turned out to be a nuisance rather than
+ * atmosphere. Do not add it back without being asked.
  *
- * The music is one slow jazz progression on soft electric-piano-ish tones with
- * a brushed pulse, played at a low level and gently varied so it does not
- * announce itself. It loops indefinitely without repeating a bar exactly.
+ * What remains is a small set of short effects — a chime, a good and a bad
+ * money sound, a click, dice, and a step — reused everywhere rather than a
+ * different noise for every event. They are synthesised in the browser with
+ * the Web Audio API: no audio files, so nothing to download, nothing
+ * copyrighted, and everything works offline the moment the page does.
  *
- * The effects are a deliberately small set — a chime, a good and a bad money
- * sound, a click, dice, and a step — reused everywhere rather than a different
- * noise for every event.
+ * All of it follows the app. Nothing makes a sound while the game is off
+ * screen, and closing the page tears the audio down completely.
  */
 
 type Sfx = 'chime' | 'good' | 'bad' | 'click' | 'dice' | 'step'
@@ -21,18 +20,21 @@ type Sfx = 'chime' | 'good' | 'bad' | 'click' | 'dice' | 'step'
 const STORAGE_KEY = 'business.sound'
 
 interface Prefs {
-  music: boolean
+  /** Short effects. On by default; they only ever fire on a real event. */
   sfx: boolean
 }
 
 function loadPrefs(): Prefs {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
-    if (raw) return { music: true, sfx: true, ...JSON.parse(raw) }
+    if (raw) {
+      const saved = JSON.parse(raw) as Partial<Prefs>
+      return { sfx: saved.sfx ?? true }
+    }
   } catch {
-    // Storage blocked; the defaults are fine.
+    // Storage blocked; the default is fine.
   }
-  return { music: true, sfx: true }
+  return { sfx: true }
 }
 
 let prefs = loadPrefs()
@@ -47,23 +49,21 @@ function savePrefs(): void {
 
 let ctx: AudioContext | null = null
 let master: GainNode | null = null
-let musicGain: GainNode | null = null
 let sfxGain: GainNode | null = null
-let musicTimer: number | null = null
 let started = false
+/** True while the game is off screen: nothing makes a sound then. */
+let hidden = false
 
 function audio(): AudioContext | null {
   if (ctx) return ctx
-  const Ctor = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+  const Ctor =
+    window.AudioContext ??
+    (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
   if (!Ctor) return null
   ctx = new Ctor()
   master = ctx.createGain()
   master.gain.value = 0.9
   master.connect(ctx.destination)
-
-  musicGain = ctx.createGain()
-  musicGain.gain.value = prefs.music ? 0.055 : 0
-  musicGain.connect(master)
 
   sfxGain = ctx.createGain()
   sfxGain.gain.value = prefs.sfx ? 0.5 : 0
@@ -95,7 +95,7 @@ function tone(
   osc.stop(start + length + 0.05)
 }
 
-/** Short filtered noise — dice on a table, and the brush in the music. */
+/** Short filtered noise — dice landing on a table. */
 function noise(start: number, length: number, peak: number, freq: number): void {
   const c = ctx!
   const frames = Math.max(1, Math.floor(c.sampleRate * length))
@@ -160,140 +160,17 @@ export function play(sound: Sfx): void {
   }
 }
 
-// ------------------------------------------------------------------ music --
-
-/**
- * A slow ii-V-I-vi turnaround in F, voiced as sevenths and ninths. Each bar is
- * a chord; the bar length and the little melody note on top are varied so the
- * loop does not become a nag.
- */
-const CHORDS: number[][] = [
-  [174.61, 220.0, 261.63, 329.63], // Gm9-ish
-  [130.81, 196.0, 233.08, 293.66], // C9
-  [174.61, 261.63, 329.63, 392.0], // Fmaj7
-  [146.83, 220.0, 277.18, 349.23], // Dm9
-]
-const MELODY = [523.25, 587.33, 698.46, 659.25, 587.33, 783.99, 698.46, 523.25]
-
-let bar = 0
-/**
- * The notes scheduled for the current bar.
- *
- * A bar is planned up to five seconds ahead, so hiding the page has to cancel
- * what is already queued as well as stopping the scheduler — otherwise those
- * notes simply resume on the way back and play over the top of the new bar.
- */
-let barNodes: AudioScheduledSourceNode[] = []
-
-function cancelScheduledMusic(): void {
-  for (const node of barNodes) {
-    try {
-      node.stop()
-    } catch {
-      // Already finished; nothing to stop.
-    }
-  }
-  barNodes = []
-}
-
-function playBar(): void {
-  const c = ctx!
-  if (!prefs.music || hidden) {
-    // The chain ends here. Releasing the handle is what lets it be started
-    // again later — a stale one used to make `setMusicOn(true)` do nothing.
-    musicTimer = null
-    return
-  }
-  barNodes = []
-  const chord = CHORDS[bar % CHORDS.length]
-  const t = c.currentTime + 0.05
-  const barLength = 4.6
-
-  chord.forEach((freq, i) => {
-    const osc = c.createOscillator()
-    const gain = c.createGain()
-    // Two stacked sines make a rounder, more electric-piano tone than one.
-    osc.type = i === 0 ? 'sine' : 'triangle'
-    osc.frequency.value = freq
-    const peak = i === 0 ? 0.5 : 0.24
-    const at = t + i * 0.045
-    gain.gain.setValueAtTime(0.0001, at)
-    gain.gain.exponentialRampToValueAtTime(peak, at + 0.35)
-    gain.gain.exponentialRampToValueAtTime(0.0001, at + barLength * 0.92)
-    osc.connect(gain)
-    gain.connect(musicGain!)
-    osc.start(at)
-    osc.stop(at + barLength)
-    barNodes.push(osc)
-  })
-
-  // A single melody note, not every bar, so it stays sparse.
-  if (bar % 2 === 0) {
-    const note = MELODY[(bar / 2) % MELODY.length]
-    const osc = c.createOscillator()
-    const gain = c.createGain()
-    osc.type = 'sine'
-    osc.frequency.value = note
-    const at = t + 1.1
-    gain.gain.setValueAtTime(0.0001, at)
-    gain.gain.exponentialRampToValueAtTime(0.22, at + 0.12)
-    gain.gain.exponentialRampToValueAtTime(0.0001, at + 1.6)
-    osc.connect(gain)
-    gain.connect(musicGain!)
-    osc.start(at)
-    osc.stop(at + 1.8)
-    barNodes.push(osc)
-  }
-
-  // Brushed pulse on two and four, very quiet.
-  for (const beat of [1.15, 3.45]) {
-    const frames = Math.floor(c.sampleRate * 0.12)
-    const buffer = c.createBuffer(1, frames, c.sampleRate)
-    const data = buffer.getChannelData(0)
-    for (let i = 0; i < frames; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / frames)
-    const src = c.createBufferSource()
-    src.buffer = buffer
-    const hp = c.createBiquadFilter()
-    hp.type = 'highpass'
-    hp.frequency.value = 5000
-    const gain = c.createGain()
-    gain.gain.setValueAtTime(0.05, t + beat)
-    gain.gain.exponentialRampToValueAtTime(0.0001, t + beat + 0.12)
-    src.connect(hp)
-    hp.connect(gain)
-    gain.connect(musicGain!)
-    src.start(t + beat)
-    src.stop(t + beat + 0.14)
-    barNodes.push(src)
-  }
-
-  bar += 1
-  musicTimer = window.setTimeout(playBar, barLength * 1000)
-}
-
-/** Stop the music scheduler and let go of its timer. */
-function stopMusicLoop(): void {
-  if (musicTimer !== null) {
-    window.clearTimeout(musicTimer)
-    musicTimer = null
-  }
-}
+// --------------------------------------------------------------- lifecycle --
 
 /**
  * Silence while the game is not on screen.
  *
  * A Web Audio context keeps running when the page goes into the background —
- * switching apps, locking the phone, moving to another tab — so the music
- * carried on playing out of nowhere. Hiding the page now suspends the whole
- * context, which stops both the scheduler and anything already scheduled;
- * coming back resumes it, but only if the music was on to begin with.
+ * switching apps, locking the phone, moving to another tab. Hiding the page
+ * suspends the whole context; coming back resumes it.
  */
-let hidden = false
-
 function goQuiet(): void {
   hidden = true
-  stopMusicLoop()
-  cancelScheduledMusic()
   if (ctx && ctx.state === 'running') void ctx.suspend()
 }
 
@@ -301,7 +178,6 @@ function comeBack(): void {
   hidden = false
   if (!started || !ctx) return
   if (ctx.state === 'suspended') void ctx.resume()
-  if (prefs.music && musicTimer === null) playBar()
 }
 
 if (typeof document !== 'undefined') {
@@ -318,18 +194,17 @@ if (typeof document !== 'undefined') {
       goQuiet()
       return
     }
-    stopMusicLoop()
-    cancelScheduledMusic()
     started = false
     void ctx?.close()
     ctx = null
-    master = musicGain = sfxGain = null
+    master = sfxGain = null
   })
 }
 
 /**
- * Start everything. Browsers refuse to make noise until the player has
- * interacted with the page, so this is called from the first real tap.
+ * Prepare the audio. Browsers refuse to make noise until the player has
+ * interacted with the page, so this is called from the first real tap. It
+ * starts nothing playing by itself — there is no music to start.
  */
 export function startAudio(): void {
   if (started) return
@@ -337,24 +212,10 @@ export function startAudio(): void {
   if (!c) return
   started = true
   if (c.state === 'suspended') void c.resume()
-  playBar()
 }
 
 export function soundPrefs(): Prefs {
   return { ...prefs }
-}
-
-export function setMusicOn(on: boolean): void {
-  prefs = { ...prefs, music: on }
-  savePrefs()
-  if (musicGain && ctx) {
-    musicGain.gain.setTargetAtTime(on ? 0.055 : 0, ctx.currentTime, 0.2)
-  }
-  if (on && started && !hidden && musicTimer === null) playBar()
-  if (!on) {
-    stopMusicLoop()
-    cancelScheduledMusic()
-  }
 }
 
 export function setSfxOn(on: boolean): void {
@@ -364,19 +225,18 @@ export function setSfxOn(on: boolean): void {
 }
 
 /**
- * A handle on the sound, for development only. Whether the music actually
- * stops when the page goes away is not something you can see on screen, so it
- * has to be checkable. Compiled out of the built game.
+ * A handle on the sound, for development only. Whether audio actually stops
+ * when the page goes away is not something you can see on screen, so it has to
+ * be checkable. Compiled out of the built game.
  */
 if (import.meta.env.DEV && typeof window !== 'undefined') {
   ;(window as unknown as { businessAudio?: unknown }).businessAudio = {
     start: startAudio,
+    play,
     state: () => ({
       contextState: ctx?.state ?? 'none',
       started,
       hidden,
-      musicScheduled: musicTimer !== null,
-      queuedNotes: barNodes.length,
       prefs: { ...prefs },
     }),
   }
