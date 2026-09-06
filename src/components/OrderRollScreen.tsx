@@ -17,6 +17,7 @@ export function OrderRollScreen({
   rolling,
   rollId,
   controlsPlayer,
+  isHost,
 }: {
   state: GameState
   dispatch: (action: GameAction) => void
@@ -24,6 +25,12 @@ export function OrderRollScreen({
   rollId: number
   /** Whether this device is the one that rolls for a given player. */
   controlsPlayer: (playerId: string) => boolean
+  /**
+   * Only the device running the game may start it. The engine refuses
+   * CONFIRM_ORDER from anybody else regardless, so this is what people SEE
+   * rather than what stops them.
+   */
+  isHost: boolean
 }) {
   const complete = orderRollComplete(state)
   const contenderTotals = state.orderRolls
@@ -137,15 +144,20 @@ export function OrderRollScreen({
                   : `Waiting for ${upNowName ?? 'the next player'} to roll.`}
               </span>
             )}
-            {complete && (
-              <button
-                className="btn btn-good"
-                style={{ marginLeft: 'auto' }}
-                onClick={() => dispatch({ type: 'CONFIRM_ORDER' })}
-              >
-                Start the game
-              </button>
-            )}
+            {complete &&
+              (isHost ? (
+                <button
+                  className="btn btn-good"
+                  style={{ marginLeft: 'auto' }}
+                  onClick={() => dispatch({ type: 'CONFIRM_ORDER' })}
+                >
+                  Start the game
+                </button>
+              ) : (
+                <span className="order-hint" style={{ marginLeft: 'auto' }}>
+                  Waiting for the host to start the game…
+                </span>
+              ))}
           </div>
         </div>
       </div>

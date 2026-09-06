@@ -72,7 +72,10 @@ export function resolveLanding(state: GameState, playerId: string, total: number
       break
   }
 
-  if (state.notices.length === before && state.stage !== 'awaitingPurchase') {
+  // Say "landed on X" whenever nothing more specific was announced. Being
+  // offered a property is not an announcement, and it is exactly the moment
+  // the other players want to know where somebody has got to.
+  if (state.notices.length === before) {
     notify(state, playerId, `${player.name} landed on ${space.label}`)
   }
 }

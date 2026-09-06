@@ -198,11 +198,7 @@ export function Board({
           )
         })}
 
-        {/* `--turn` is the colour of whoever is up; the centre reads from it. */}
-        <div
-          className="board-centre"
-          style={{ '--turn': dieColour ?? 'transparent' } as CSSProperties}
-        >
+        <div className="board-centre">
           {centreCard ?? (
             <>
               <BoardCentre />

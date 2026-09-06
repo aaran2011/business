@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useRef, type CSSProperties } from 'react'
 
 /**
  * Physical-feeling dice.
@@ -202,7 +202,14 @@ export function DiceTray({
   if (!onRoll) return dice3d
 
   return (
-    <div className="dice-roller">
+    /*
+      The active player's colour goes on `.dice-tint`, an element of its own
+      behind the die. Never on a parent: a parent here is the middle of the
+      board, and tinting that washes the whole inside of the board in one
+      player's colour.
+    */
+    <div className="dice-roller" style={{ '--turn': colour ?? 'transparent' } as CSSProperties}>
+      <span className="dice-tint" aria-hidden="true" />
       <button
         type="button"
         className={`dice-hit${canRoll ? ' can-roll' : ''}`}

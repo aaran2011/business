@@ -21,7 +21,6 @@ import { useSession } from './net/useSession'
 import { play, startAudio } from './audio/sound'
 import { GameCodeModal } from './components/GameCodeModal'
 import { LeaveConfirm } from './components/LeaveConfirm'
-import { SoundToggle } from './components/SoundToggle'
 import { maskCashExcept } from './net/protocol'
 import { money } from './engine/log'
 import { debtOwedBy, displayNameOf, hasCompleteColourGroup } from './engine/queries'
@@ -34,6 +33,22 @@ export default function App() {
   const { state } = session
   const dispatch = session.dispatch
   const [showJoin, setShowJoin] = useState(false)
+
+  /**
+   * A window on the live game, for development only. Testing multiplayer means
+   * being able to ask a device what it actually believes, rather than guessing
+   * from the pixels. Compiled out of the built game.
+   */
+  if (import.meta.env.DEV) {
+    ;(window as unknown as { businessState?: unknown }).businessState = {
+      role: session.role,
+      myPlayerId: session.myPlayerId,
+      notices: state.notices,
+      phase: state.phase,
+      stage: state.stage,
+      current: state.turnOrder[state.currentIndex],
+    }
+  }
 
   /**
    * Somebody who has left should land on the start screen, not back on the
@@ -233,6 +248,7 @@ export default function App() {
         rolling={rolling}
         rollId={rollSeq}
         controlsPlayer={session.controlsPlayer}
+        isHost={session.isHost}
       />
     )
   }
@@ -246,6 +262,7 @@ export default function App() {
       dispatch={act}
       canAct={session.controlsPlayer(state.turnOrder[state.currentIndex])}
       isHost={session.isHost}
+      controlsPlayer={session.controlsPlayer}
       session={session}
       showCode={showCode}
       setShowCode={setShowCode}
@@ -275,6 +292,8 @@ interface PlayingViewProps {
   canAct: boolean
   /** Only the device running the game gets the host controls. */
   isHost: boolean
+  /** Whether this device plays a given seat — decides who sees a notice. */
+  controlsPlayer: (playerId: string) => boolean
   /** True while this device is quietly getting back into the game. */
   reconnecting: boolean
   session: ReturnType<typeof useSession>
@@ -302,6 +321,7 @@ function PlayingView({
   dispatch,
   canAct,
   isHost,
+  controlsPlayer,
   session,
   showCode,
   setShowCode,
@@ -394,7 +414,6 @@ function PlayingView({
         {/* Says what is happening instead of throwing anybody out of the game. */}
         {reconnecting && <span className="reconnecting">Reconnecting…</span>}
         <div className="topbar-spacer" />
-        <SoundToggle />
         <button className="btn btn-sm btn-ghost" onClick={() => setShowHouseRules(true)}>
           House Rules
         </button>
@@ -405,8 +424,8 @@ function PlayingView({
         )}
       </header>
 
-      {/* Short lines about what has already happened. Nothing to dismiss. */}
-      <NoticeStack notices={state.notices} />
+      {/* Short lines about what others have done. Nothing to dismiss. */}
+      <NoticeStack notices={state.notices} controlsPlayer={controlsPlayer} />
 
       {owed > 0 && (
         <div className="debt-banner">

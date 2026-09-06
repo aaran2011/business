@@ -1,12 +1,18 @@
 import { useState } from 'react'
 import { setMusicOn, setSfxOn, soundPrefs, startAudio } from '../audio/sound'
 
-/** Music and effects, on or off. Both settings are remembered. */
+/**
+ * Music and effects, on or off. Both settings are remembered.
+ *
+ * Lives inside House Rules rather than the top bar: the top bar is for the
+ * game itself, and two speaker icons there were clutter.
+ */
 export function SoundToggle() {
   const [prefs, setPrefs] = useState(soundPrefs)
 
   return (
     <div className="sound-toggle">
+      <span className="sound-label">Sound</span>
       <button
         className={`btn btn-sm btn-ghost${prefs.music ? '' : ' is-off'}`}
         aria-pressed={prefs.music}

@@ -1,61 +1,94 @@
 import { useEffect, useRef, useState } from 'react'
-import { play } from '../audio/sound'
 import type { GameNotice } from '../engine/types'
 
 /**
- * What just happened, in one line, for a few seconds.
+ * What just happened, in one line, for three seconds.
  *
- * Everything the rules have already settled comes through here: rent, cards,
- * Resort, Party House, purchases, Jail. There is nothing to press — a card
- * asking you to confirm something that has already happened is a card asking
- * you to agree with the past.
+ * Two rules make this useful rather than noisy:
  *
- * The queue comes from the game state, so every device shows the same lines in
- * the same order. Each is shown once; the ids already seen are remembered so a
- * reconnect does not replay the whole game.
+ * AUDIENCE. A notice goes to everyone EXCEPT the device that caused it. If I
+ * roll and land on France I watched my own token get there; being told about
+ * it is clutter. Whether it is mine is decided by player id through
+ * `controlsPlayer`, never by comparing names — two people can be called Sam.
  *
- * On a phone these sit under the header where the eye already is; on a wider
- * screen they sit at the bottom, out of the way of the board.
+ * TIMING. Each line keeps its own three-second life. A later event never
+ * extends or cuts short one already on screen, and nothing is left stacked up
+ * once it has been read.
  */
 const SHOW_MS = 3000
+const FADE_MS = 260
 
-export function NoticeStack({ notices }: { notices: GameNotice[] }) {
-  const [visible, setVisible] = useState<GameNotice[]>([])
+interface Shown {
+  notice: GameNotice
+  leaving: boolean
+}
+
+export function NoticeStack({
+  notices,
+  controlsPlayer,
+}: {
+  notices: GameNotice[]
+  /** True when THIS device plays that seat — those notices are not shown. */
+  controlsPlayer: (playerId: string) => boolean
+}) {
+  const [shown, setShown] = useState<Shown[]>([])
   const seen = useRef<Set<number>>(new Set())
   const primed = useRef(false)
+  const timers = useRef<number[]>([])
+
+  useEffect(
+    () => () => {
+      for (const t of timers.current) window.clearTimeout(t)
+    },
+    [],
+  )
 
   useEffect(() => {
+    // A device joining mid-game is handed everything that has happened so far.
+    // Replaying all of it would be a wall of stale news, so on the very first
+    // pass the backlog is marked as read and nothing is shown. This has to run
+    // even when the list is EMPTY — otherwise a game watched from the start
+    // treats its first real event as backlog and swallows it.
+    if (!primed.current) {
+      primed.current = true
+      for (const n of notices) seen.current.add(n.id)
+      return
+    }
+
     const fresh = notices.filter((n) => !seen.current.has(n.id))
     if (!fresh.length) return
     for (const n of fresh) seen.current.add(n.id)
 
-    // The first state a device receives carries whatever has happened so far.
-    // Showing all of it at once would be a wall of stale news, so the backlog
-    // is marked as seen and only what happens from now on is announced.
-    if (!primed.current) {
-      primed.current = true
-      return
+    const mine = (n: GameNotice) => controlsPlayer(n.playerId)
+    const forMe = fresh.filter((n) => !mine(n))
+    if (!forMe.length) return
+
+    setShown((current) => [...current, ...forMe.map((notice) => ({ notice, leaving: false }))])
+
+    // One timer per line, so each lives exactly three seconds of its own.
+    for (const notice of forMe) {
+      const fade = window.setTimeout(() => {
+        setShown((current) =>
+          current.map((s) => (s.notice.id === notice.id ? { ...s, leaving: true } : s)),
+        )
+        const drop = window.setTimeout(() => {
+          setShown((current) => current.filter((s) => s.notice.id !== notice.id))
+        }, FADE_MS)
+        timers.current.push(drop)
+      }, SHOW_MS)
+      timers.current.push(fade)
     }
+  }, [notices, controlsPlayer])
 
-    for (const n of fresh) {
-      if (n.tone === 'good') play('good')
-      else if (n.tone === 'bad') play('bad')
-      else play('chime')
-    }
-
-    setVisible((current) => [...current, ...fresh].slice(-2))
-    const timer = window.setTimeout(() => {
-      setVisible((current) => current.filter((n) => !fresh.some((f) => f.id === n.id)))
-    }, SHOW_MS)
-    return () => window.clearTimeout(timer)
-  }, [notices])
-
-  if (!visible.length) return null
+  if (!shown.length) return null
   return (
     <div className="notice-stack" role="status" aria-live="polite">
-      {visible.map((n) => (
-        <div key={n.id} className={`notice notice-${n.tone}`}>
-          {n.text}
+      {shown.map(({ notice, leaving }) => (
+        <div
+          key={notice.id}
+          className={`notice notice-${notice.tone}${leaving ? ' is-leaving' : ''}`}
+        >
+          {notice.text}
         </div>
       ))}
     </div>

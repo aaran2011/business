@@ -1,5 +1,6 @@
 import { UNCONFIRMED_SETTINGS, type GameSettings } from '../data/settings'
 import type { GameAction, GameState } from '../engine/types'
+import { SoundToggle } from './SoundToggle'
 
 /**
  * The four rules the printed game did not specify. They are settings rather
@@ -224,7 +225,9 @@ export function HouseRulesModal({
         </div>
 
         <div className="modal-foot">
-          <button className="btn btn-primary" onClick={onClose}>
+          {/* Sound lives here rather than in the top bar, which is for the game. */}
+          <SoundToggle />
+          <button className="btn btn-primary" style={{ marginLeft: 'auto' }} onClick={onClose}>
             Done
           </button>
         </div>
