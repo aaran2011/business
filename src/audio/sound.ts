@@ -122,7 +122,7 @@ function noise(start: number, length: number, peak: number, freq: number): void 
 }
 
 export function play(sound: Sfx): void {
-  if (!prefs.sfx) return
+  if (!prefs.sfx || hidden) return
   const c = audio()
   if (!c) return
   if (c.state === 'suspended') void c.resume()
@@ -176,10 +176,35 @@ const CHORDS: number[][] = [
 const MELODY = [523.25, 587.33, 698.46, 659.25, 587.33, 783.99, 698.46, 523.25]
 
 let bar = 0
+/**
+ * The notes scheduled for the current bar.
+ *
+ * A bar is planned up to five seconds ahead, so hiding the page has to cancel
+ * what is already queued as well as stopping the scheduler — otherwise those
+ * notes simply resume on the way back and play over the top of the new bar.
+ */
+let barNodes: AudioScheduledSourceNode[] = []
+
+function cancelScheduledMusic(): void {
+  for (const node of barNodes) {
+    try {
+      node.stop()
+    } catch {
+      // Already finished; nothing to stop.
+    }
+  }
+  barNodes = []
+}
 
 function playBar(): void {
   const c = ctx!
-  if (!prefs.music) return
+  if (!prefs.music || hidden) {
+    // The chain ends here. Releasing the handle is what lets it be started
+    // again later — a stale one used to make `setMusicOn(true)` do nothing.
+    musicTimer = null
+    return
+  }
+  barNodes = []
   const chord = CHORDS[bar % CHORDS.length]
   const t = c.currentTime + 0.05
   const barLength = 4.6
@@ -199,6 +224,7 @@ function playBar(): void {
     gain.connect(musicGain!)
     osc.start(at)
     osc.stop(at + barLength)
+    barNodes.push(osc)
   })
 
   // A single melody note, not every bar, so it stays sparse.
@@ -216,6 +242,7 @@ function playBar(): void {
     gain.connect(musicGain!)
     osc.start(at)
     osc.stop(at + 1.8)
+    barNodes.push(osc)
   }
 
   // Brushed pulse on two and four, very quiet.
@@ -237,10 +264,67 @@ function playBar(): void {
     gain.connect(musicGain!)
     src.start(t + beat)
     src.stop(t + beat + 0.14)
+    barNodes.push(src)
   }
 
   bar += 1
   musicTimer = window.setTimeout(playBar, barLength * 1000)
+}
+
+/** Stop the music scheduler and let go of its timer. */
+function stopMusicLoop(): void {
+  if (musicTimer !== null) {
+    window.clearTimeout(musicTimer)
+    musicTimer = null
+  }
+}
+
+/**
+ * Silence while the game is not on screen.
+ *
+ * A Web Audio context keeps running when the page goes into the background —
+ * switching apps, locking the phone, moving to another tab — so the music
+ * carried on playing out of nowhere. Hiding the page now suspends the whole
+ * context, which stops both the scheduler and anything already scheduled;
+ * coming back resumes it, but only if the music was on to begin with.
+ */
+let hidden = false
+
+function goQuiet(): void {
+  hidden = true
+  stopMusicLoop()
+  cancelScheduledMusic()
+  if (ctx && ctx.state === 'running') void ctx.suspend()
+}
+
+function comeBack(): void {
+  hidden = false
+  if (!started || !ctx) return
+  if (ctx.state === 'suspended') void ctx.resume()
+  if (prefs.music && musicTimer === null) playBar()
+}
+
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') goQuiet()
+    else comeBack()
+  })
+
+  // Leaving the page for good: tear the context down rather than leave it
+  // suspended. `persisted` means the page is going into the back/forward
+  // cache and may come back, so that one is only paused.
+  window.addEventListener('pagehide', (event) => {
+    if ((event as PageTransitionEvent).persisted) {
+      goQuiet()
+      return
+    }
+    stopMusicLoop()
+    cancelScheduledMusic()
+    started = false
+    void ctx?.close()
+    ctx = null
+    master = musicGain = sfxGain = null
+  })
 }
 
 /**
@@ -266,11 +350,34 @@ export function setMusicOn(on: boolean): void {
   if (musicGain && ctx) {
     musicGain.gain.setTargetAtTime(on ? 0.055 : 0, ctx.currentTime, 0.2)
   }
-  if (on && started && musicTimer === null) playBar()
+  if (on && started && !hidden && musicTimer === null) playBar()
+  if (!on) {
+    stopMusicLoop()
+    cancelScheduledMusic()
+  }
 }
 
 export function setSfxOn(on: boolean): void {
   prefs = { ...prefs, sfx: on }
   savePrefs()
   if (sfxGain && ctx) sfxGain.gain.value = on ? 0.5 : 0
+}
+
+/**
+ * A handle on the sound, for development only. Whether the music actually
+ * stops when the page goes away is not something you can see on screen, so it
+ * has to be checkable. Compiled out of the built game.
+ */
+if (import.meta.env.DEV && typeof window !== 'undefined') {
+  ;(window as unknown as { businessAudio?: unknown }).businessAudio = {
+    start: startAudio,
+    state: () => ({
+      contextState: ctx?.state ?? 'none',
+      started,
+      hidden,
+      musicScheduled: musicTimer !== null,
+      queuedNotes: barNodes.length,
+      prefs: { ...prefs },
+    }),
+  }
 }
