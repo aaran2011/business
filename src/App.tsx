@@ -1,13 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { BOARD, BOARD_SIZE } from './data/board'
+import { BOARD } from './data/board'
 import { COUNTRIES } from './data/properties'
 import { ActionBar } from './components/ActionBar'
 import { Board } from './components/Board'
 import { BuildOffer } from './components/BuildOffer'
 import { BuildWarning } from './components/BuildWarning'
 import { JailDice } from './components/Dice'
-import { EventNotice } from './components/EventNotice'
-import { EventPopup } from './components/EventPopup'
+import { NoticeStack } from './components/NoticeStack'
 import { HouseRulesModal } from './components/HouseRulesModal'
 import { Leaderboard } from './components/Leaderboard'
 import { ManageModal } from './components/ManageModal'
@@ -17,9 +16,12 @@ import { RemovePlayerModal } from './components/RemovePlayerModal'
 import { ResultsScreen } from './components/ResultsScreen'
 import { SetupScreen } from './components/SetupScreen'
 import { PauseOverlay, TimerModal } from './components/TimerModal'
-import { canBuild } from './engine/building'
 import { JoinPanel } from './components/JoinPanel'
 import { useSession } from './net/useSession'
+import { play, startAudio } from './audio/sound'
+import { GameCodeModal } from './components/GameCodeModal'
+import { LeaveConfirm } from './components/LeaveConfirm'
+import { SoundToggle } from './components/SoundToggle'
 import { maskCashExcept } from './net/protocol'
 import { money } from './engine/log'
 import { debtOwedBy, displayNameOf, hasCompleteColourGroup } from './engine/queries'
@@ -32,81 +34,88 @@ export default function App() {
   const { state } = session
   const dispatch = session.dispatch
   const [showJoin, setShowJoin] = useState(false)
+
+  /**
+   * Somebody who has left should land on the start screen, not back on the
+   * "put in a code" panel they last used. Leaving is a way out, not a loop.
+   */
+  useEffect(() => {
+    if (session.role === 'solo' && session.status === 'idle') setShowJoin(false)
+  }, [session.role, session.status])
   /** A guest shows the host's game; the host alone drives the turn machinery. */
   const isGuest = session.role === 'guest'
   const isGuestRef = useRef(isGuest)
   isGuestRef.current = isGuest
 
-  const [rolling, setRolling] = useState(false)
-  const [displayPositions, setDisplayPositions] = useState<Record<string, number>>({})
   const [showManage, setShowManage] = useState(false)
   const [showHouseRules, setShowHouseRules] = useState(false)
   const [showTimer, setShowTimer] = useState(false)
   const [showRemove, setShowRemove] = useState(false)
+  const [showCode, setShowCode] = useState(false)
+  const [confirmLeave, setConfirmLeave] = useState(false)
   const [remainingMs, setRemainingMs] = useState<number | null>(null)
 
-  /** Bumped once per throw so each die picks a fresh spin. */
-  const [rollId, setRollId] = useState(0)
-  const rollTimer = useRef<number | null>(null)
+  /**
+   * The die spins because a throw HAPPENED, not because something was tapped.
+   *
+   * `rollSeq` only moves when the rules accept a roll, so a refused tap — one
+   * sent while the token is still walking, say — spins nothing and changes no
+   * number. That is what used to make the same face appear over and over: the
+   * roll was refused, the old face stayed on the table, and the animation ran
+   * anyway, so it looked like the die kept landing on 4.
+   */
+  const [rolling, setRolling] = useState(false)
+  const rollSeq = state.rollSeq
+  useEffect(() => {
+    if (rollSeq === 0) return
+    setRolling(true)
+    play('dice')
+    const timer = window.setTimeout(() => setRolling(false), state.settings.dice.rollAnimationMs)
+    return () => window.clearTimeout(timer)
+  }, [rollSeq, state.settings.dice.rollAnimationMs])
 
-  /** Wrap dispatch so any action that produces dice also spins them. */
+  /** Any tap that matters also wakes the audio, which browsers gate on input. */
   const act = useCallback<Dispatch>(
     (action) => {
-      if (action.type === 'ROLL_DICE' || action.type === 'ROLL_FOR_ORDER') {
-        setRolling(true)
-        setRollId((n) => n + 1)
-        if (rollTimer.current) window.clearTimeout(rollTimer.current)
-        rollTimer.current = window.setTimeout(
-          () => setRolling(false),
-          state.settings.dice.rollAnimationMs,
-        )
-      }
+      startAudio()
       dispatch(action)
     },
-    [state.settings.dice.rollAnimationMs],
+    [dispatch],
   )
 
-  useEffect(
-    () => () => {
-      if (rollTimer.current) window.clearTimeout(rollTimer.current)
-    },
-    [],
-  )
-
-  // Keep pawns in sync with real positions whenever nothing is animating.
+  /**
+   * The token walks, one space at a time, and the HOST does the walking.
+   *
+   * Each step is a change to the shared game state, so every device sees the
+   * same token cross the same spaces in the same order — nobody teleports and
+   * nobody loses a step to a dropped message. The first step waits for the die
+   * to finish spinning, so the number is on the table before the token leaves.
+   */
   useEffect(() => {
-    if (state.stage === 'moving') return
-    setDisplayPositions(Object.fromEntries(state.players.map((p) => [p.id, p.position])))
-  }, [state.players, state.stage])
-
-  // Step the pawn one space at a time once the dice have settled.
-  useEffect(() => {
-    if (state.stage !== 'moving' || !state.pendingMove || rolling) return
-
-    const { from, steps } = state.pendingMove
-    const playerId = state.turnOrder[state.currentIndex]
-    let step = 0
-
-    const timer = window.setInterval(() => {
-      step += 1
-      setDisplayPositions((prev) => ({ ...prev, [playerId]: (from + step) % BOARD_SIZE }))
-      if (step >= steps) {
-        window.clearInterval(timer)
-        // The guest animates the pawn to match, but the host decides when the
-        // move is finished — otherwise two devices resolve the same landing.
-        if (!isGuestRef.current) dispatch({ type: 'COMPLETE_MOVE' })
-      }
-    }, state.settings.moveStepMs)
-
-    return () => window.clearInterval(timer)
+    if (isGuest) return
+    if (state.phase !== 'playing' || state.stage !== 'moving' || !state.pendingMove) return
+    if (state.paused) return
+    const first = state.pendingMove.taken === 0
+    const delay = first ? state.settings.dice.rollAnimationMs : state.settings.moveStepMs
+    const timer = window.setTimeout(() => dispatch({ type: 'STEP_MOVE' }), delay)
+    return () => window.clearTimeout(timer)
   }, [
+    isGuest,
+    state.phase,
     state.stage,
-    state.pendingMove,
-    state.turnOrder,
-    state.currentIndex,
+    state.paused,
+    state.pendingMove?.taken,
+    state.pendingMove?.steps,
+    state.turnNumber,
     state.settings.moveStepMs,
-    rolling,
+    state.settings.dice.rollAnimationMs,
   ])
+
+  /** A quiet tick as the token passes each space, on every device. */
+  const stepsTaken = state.pendingMove?.taken ?? 0
+  useEffect(() => {
+    if (stepsTaken > 0) play('step')
+  }, [stepsTaken])
 
   /**
    * The turn ends by itself. Once the player has resolved everything in front
@@ -121,8 +130,10 @@ export default function App() {
     if (!state.settings.turn.autoEnd || isGuest) return
     if (state.phase !== 'playing' || state.paused) return
     if (state.stage !== 'awaitingEndTurn') return
-    if (state.popups.length > 0 || dialogOpen || blockedByDebt) return
+    if (dialogOpen || blockedByDebt) return
 
+    // Long enough that the line about what just happened is readable before
+    // the next player is up, short enough not to feel like a wait.
     const timer = window.setTimeout(
       () => dispatch({ type: 'END_TURN' }),
       state.settings.turn.autoEndDelayMs,
@@ -131,7 +142,6 @@ export default function App() {
   }, [
     state.phase,
     state.stage,
-    state.popups.length,
     state.paused,
     state.turnNumber,
     state.settings.turn.autoEnd,
@@ -221,7 +231,7 @@ export default function App() {
         state={viewState}
         dispatch={act}
         rolling={rolling}
-        rollId={rollId}
+        rollId={rollSeq}
         controlsPlayer={session.controlsPlayer}
       />
     )
@@ -236,12 +246,15 @@ export default function App() {
       dispatch={act}
       canAct={session.controlsPlayer(state.turnOrder[state.currentIndex])}
       isHost={session.isHost}
+      session={session}
+      showCode={showCode}
+      setShowCode={setShowCode}
+      confirmLeave={confirmLeave}
+      setConfirmLeave={setConfirmLeave}
       reconnecting={session.reconnecting}
-      controlsPlayer={session.controlsPlayer}
       seatName={state.players.find((p) => p.id === session.myPlayerId)?.name ?? null}
       rolling={rolling}
-      rollId={rollId}
-      displayPositions={displayPositions}
+      rollId={rollSeq}
       remainingMs={remainingMs}
       showManage={showManage}
       setShowManage={setShowManage}
@@ -264,13 +277,15 @@ interface PlayingViewProps {
   isHost: boolean
   /** True while this device is quietly getting back into the game. */
   reconnecting: boolean
-  /** Whether this device plays a given seat. */
-  controlsPlayer: (playerId: string) => boolean
+  session: ReturnType<typeof useSession>
+  showCode: boolean
+  setShowCode: (v: boolean) => void
+  confirmLeave: boolean
+  setConfirmLeave: (v: boolean) => void
   /** The seat this phone is playing, when it joined with a code. */
   seatName: string | null
   rolling: boolean
   rollId: number
-  displayPositions: Record<string, number>
   remainingMs: number | null
   showManage: boolean
   setShowManage: (v: boolean) => void
@@ -287,12 +302,15 @@ function PlayingView({
   dispatch,
   canAct,
   isHost,
+  session,
+  showCode,
+  setShowCode,
+  confirmLeave,
+  setConfirmLeave,
   reconnecting,
   seatName,
-  controlsPlayer,
   rolling,
   rollId,
-  displayPositions,
   remainingMs,
   showManage,
   setShowManage,
@@ -311,7 +329,13 @@ function PlayingView({
     if (state.paused) return 'Paused.'
     if (state.stage === 'moving') return 'Moving…'
     if (state.stage === 'inJail') return `${player.name} is in Jail.`
-    if (!canAct) return `${player.name} is playing — not your turn.`
+    if (!canAct) {
+      // Say what they are actually doing, so nobody is left watching a frozen
+      // board wondering whether the game has hung.
+      if (state.stage === 'awaitingPurchase') return `${player.name} is deciding…`
+      if (state.stage === 'awaitingBuild') return `${player.name} is deciding whether to build…`
+      return `${player.name} is playing.`
+    }
     if (state.stage === 'awaitingPurchase' && state.pendingPurchase) {
       return `${displayNameOf(state.pendingPurchase.propertyId)} — ${money(
         state.pendingPurchase.price,
@@ -331,8 +355,6 @@ function PlayingView({
   // Cards open because the game says so — landing on a space — and never
   // because somebody tapped the board.
   const cardId = offeredToMe?.propertyId ?? buildOffer?.propertyId ?? null
-  const popup = state.popups[0] ?? null
-  const buildCheck = buildOffer ? canBuild(state, player.id, buildOffer.propertyId) : null
 
   /**
    * Building on a completed colour group costs that card its doubled site
@@ -352,13 +374,18 @@ function PlayingView({
   return (
     <div className="app">
       {/*
-        The clock is for everyone; setting it and changing the rules are the
-        host's job, so a joined phone is not shown buttons it cannot use.
+        The header carries what each person is actually allowed to do. The host
+        runs the game, so the host sets the clock, hands out the code and edits
+        the rules; everybody else gets the clock, the rules to read, and the
+        door. Nobody is shown a control that would do nothing.
       */}
       <header className="topbar">
-        {isHost && (
-          <button className="btn btn-sm" onClick={() => setShowTimer(true)}>
-            {'\u{23F1}\u{FE0F}'} Timer
+        <button className="btn btn-sm" onClick={() => setShowTimer(true)}>
+          {'\u{23F1}\u{FE0F}'} Timer
+        </button>
+        {isHost && session.role !== 'solo' && (
+          <button className="btn btn-sm" onClick={() => setShowCode(true)}>
+            Get Code
           </button>
         )}
         {remainingMs !== null && (
@@ -367,12 +394,19 @@ function PlayingView({
         {/* Says what is happening instead of throwing anybody out of the game. */}
         {reconnecting && <span className="reconnecting">Reconnecting…</span>}
         <div className="topbar-spacer" />
-        {isHost && (
-          <button className="btn btn-sm btn-ghost" onClick={() => setShowHouseRules(true)}>
-            House Rules
+        <SoundToggle />
+        <button className="btn btn-sm btn-ghost" onClick={() => setShowHouseRules(true)}>
+          House Rules
+        </button>
+        {session.role !== 'solo' && (
+          <button className="btn btn-sm btn-ghost" onClick={() => setConfirmLeave(true)}>
+            Leave
           </button>
         )}
       </header>
+
+      {/* Short lines about what has already happened. Nothing to dismiss. */}
+      <NoticeStack notices={state.notices} />
 
       {owed > 0 && (
         <div className="debt-banner">
@@ -399,7 +433,6 @@ function PlayingView({
       <div className="main">
         <Board
           state={state}
-          displayPositions={displayPositions}
           rolling={rolling}
           rollId={rollId}
           centreStatus={centreStatus}
@@ -407,7 +440,7 @@ function PlayingView({
           canRoll={state.stage === 'awaitingRoll' && owed === 0 && !state.paused && canAct}
           rollPrompt={
             !canAct
-              ? `${player.name} is playing — watching from ${seatName ?? 'your phone'}`
+              ? `${player.name}'s turn${seatName ? ` — you are ${seatName}` : ''}`
               : state.stage === 'awaitingRoll' && owed === 0 && !state.paused
                 ? `${player.name} — tap the die to roll`
                 : ''
@@ -415,18 +448,13 @@ function PlayingView({
           dieColour={player.colourHex}
           centreCard={
             /*
-              One slot in the middle of the board, and a clear order of who
-              gets it: a card about what just happened first, then Jail, then
-              the property you are being asked about.
+              One slot in the middle of the board. Jail first, then whatever
+              property the player has been asked about.
+
+              This is INFORMATION. The buttons all live in the bar at the
+              bottom of the screen, in one place, so nothing is offered twice.
             */
-            popup && !state.paused ? (
-              <EventPopup
-                popup={popup}
-                state={state}
-                mine={popup.affects === null || controlsPlayer(popup.affects)}
-                onDismiss={() => dispatch({ type: 'DISMISS_POPUP' })}
-              />
-            ) : state.stage === 'inJail' && !popup && !state.paused ? (
+            state.stage === 'inJail' && !state.paused ? (
               <div className="centre-card jail-card">
                 <div className="centre-card-head">
                   <span>{'\u{1F46E}'} Jail</span>
@@ -439,135 +467,34 @@ function PlayingView({
                     <strong>{player.name} is in Jail</strong>
                   </div>
                   <p className="jail-explain">
-                    {canAct ? 'You are' : 'They are'} locked up and cannot move. Two choices:
-                    pay {money(state.settings.jail.payToEscape)} to the bank, or take up to{' '}
-                    {state.settings.jail.escapeDieRolls} rolls of one die and total{' '}
-                    {state.settings.jail.escapeTargetTotal} or more. Either way the release takes
-                    effect on {canAct ? 'your' : 'their'} next turn — a roll on a later turn does
-                    not open the door by itself.
+                    {canAct ? 'You are' : 'They are'} locked up and cannot move. Pay{' '}
+                    {money(state.settings.jail.payToEscape)}, or roll one die up to{' '}
+                    {state.settings.jail.escapeDieRolls} times and total{' '}
+                    {state.settings.jail.escapeTargetTotal} or more. Either way the release lands
+                    on {canAct ? 'your' : 'their'} next turn.
                   </p>
-                  {canAct && (
-                    <div className="jail-choices">
-                      <button
-                        className="btn btn-primary btn-sm"
-                        onClick={() => dispatch({ type: 'JAIL_ROLL' })}
-                      >
-                        Roll ({player.jailRolls.length} of{' '}
-                        {state.settings.jail.escapeDieRolls} used)
-                      </button>
-                      <button
-                        className="btn btn-good btn-sm"
-                        onClick={() => dispatch({ type: 'JAIL_PAY' })}
-                        disabled={player.cash < state.settings.jail.payToEscape}
-                        title={
-                          player.cash < state.settings.jail.payToEscape
-                            ? `Needs ${money(state.settings.jail.payToEscape)} in cash.`
-                            : undefined
-                        }
-                      >
-                        Pay {money(state.settings.jail.payToEscape)}
-                      </button>
-                    </div>
-                  )}
-                  {player.jailRolls.length > 0 && (
-                    <JailDice
-                      rolls={player.jailRolls}
-                      slots={state.settings.jail.escapeDieRolls}
-                      target={state.settings.jail.escapeTargetTotal}
-                    />
-                  )}
+                  <JailDice
+                    rolls={player.jailRolls}
+                    slots={state.settings.jail.escapeDieRolls}
+                    target={state.settings.jail.escapeTargetTotal}
+                  />
                   {!canAct && (
                     <div className="jail-waiting">Waiting for {player.name} to choose.</div>
                   )}
                 </div>
               </div>
-            ) : cardId && !popup && !state.paused ? (
+            ) : cardId && !state.paused ? (
               <div className="centre-card">
                 <div className="centre-card-head">
-                  <span>
-                    {buildOffer?.propertyId === cardId ? 'Your property' : 'Property'}
-                  </span>
-                  <button
-                    type="button"
-                    className="centre-card-close"
-                    aria-label="Close card"
-                    onClick={() => {
-                      if (offeredToMe?.propertyId === cardId) {
-                        dispatch({ type: 'DECLINE_PURCHASE' })
-                      } else if (buildOffer?.propertyId === cardId) {
-                        dispatch({ type: 'DECLINE_BUILD' })
-                      }
-                    }}
-                  >
-                    ×
-                  </button>
+                  <span>{buildOffer?.propertyId === cardId ? 'Your property' : 'Property'}</span>
                 </div>
-
                 <div className="centre-card-body">
                   {buildOffer?.propertyId === cardId && (
                     <BuildOffer state={state} playerId={player.id} propertyId={cardId} />
                   )}
                   <PropertyCard state={state} propertyId={cardId} />
                 </div>
-
-                <div className="centre-card-foot">
-                  {offeredToMe?.propertyId === cardId && player.cash >= offeredToMe.price ? (
-                    <>
-                      <button
-                        className="btn btn-good btn-sm"
-                        onClick={() => dispatch({ type: 'BUY_PROPERTY' })}
-                      >
-                        Buy for {money(offeredToMe.price)}
-                      </button>
-                      <button
-                        className="btn btn-sm"
-                        onClick={() => dispatch({ type: 'DECLINE_PURCHASE' })}
-                      >
-                        Don't buy
-                      </button>
-                    </>
-                  ) : offeredToMe?.propertyId === cardId ? (
-                    <button
-                      className="btn btn-sm"
-                      onClick={() => dispatch({ type: 'DECLINE_PURCHASE' })}
-                    >
-                      Continue
-                    </button>
-                  ) : buildOffer?.propertyId === cardId && buildCheck?.allowed ? (
-                    <>
-                      <button
-                        className="btn btn-good btn-sm"
-                        onClick={() => requestBuild(cardId)}
-                      >
-                        Build {buildCheck.nextLabel || 'house'}
-                        {buildCheck.cost ? ` — ${money(buildCheck.cost)}` : ''}
-                      </button>
-                      <button
-                        className="btn btn-sm"
-                        onClick={() => dispatch({ type: 'DECLINE_BUILD' })}
-                      >
-                        Not now
-                      </button>
-                    </>
-                  ) : (
-                    <button
-                      className="btn btn-sm"
-                      onClick={() => dispatch({ type: 'DECLINE_BUILD' })}
-                    >
-                      Continue
-                    </button>
-                  )}
-                </div>
               </div>
-            ) : undefined
-          }
-          centreExtra={
-            state.stage === 'inJail' || player.jailRolls.length > 0 ? (
-              <JailDice
-                rolls={player.jailRolls}
-                slots={state.settings.jail.escapeDieRolls}
-                target={state.settings.jail.escapeTargetTotal}
-              />
             ) : undefined
           }
         />
@@ -616,11 +543,17 @@ function PlayingView({
         />
       )}
 
-      {/* The short line the other phones get instead of the card itself. */}
-      <EventNotice
-        notice={state.notice}
-        mine={state.notice ? controlsPlayer(state.notice.playerId) : true}
-      />
+      {showCode && <GameCodeModal session={session} onClose={() => setShowCode(false)} />}
+
+      {confirmLeave && (
+        <LeaveConfirm
+          onConfirm={() => {
+            setConfirmLeave(false)
+            session.leaveGame()
+          }}
+          onCancel={() => setConfirmLeave(false)}
+        />
+      )}
 
       {confirmBuild && (
         <BuildWarning

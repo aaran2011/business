@@ -19,7 +19,7 @@
  */
 
 import { rollDie } from './dice'
-import { addLog, money, moneySentence, notify, setPopup } from './log'
+import { addLog, money, notify } from './log'
 import { transferMoney } from './payments'
 import { getPlayer } from './queries'
 import type { GameState } from './types'
@@ -35,18 +35,6 @@ export function payToEscapeJail(state: GameState, playerId: string): boolean {
 
   addLog(state, 'jail', `${player.name} paid ${money(fee)} and leaves Jail next turn.`)
   notify(state, playerId, `${player.name} paid ${money(fee)} to get out of Jail.`)
-  setPopup(
-    state,
-    {
-      kind: 'simple',
-      icon: '\u{1F513}',
-      title: 'OUT NEXT TURN',
-      subtitle: `Paid the Bank ${money(fee)}. ${player.name} walks free at the start of their next turn.`,
-      delta: -fee,
-    },
-    playerId,
-    moneySentence(player.name, -fee, 'paying to leave Jail'),
-  )
   return true
 }
 
@@ -70,7 +58,7 @@ export interface JailAttempt {
  */
 export function attemptJailEscape(state: GameState, playerId: string): JailAttempt {
   const player = getPlayer(state, playerId)
-  const { escapeDieRolls, escapeTargetTotal, payToEscape } = state.settings.jail
+  const { escapeDieRolls, escapeTargetTotal } = state.settings.jail
 
   const before = player.jailRolls.reduce((sum, r) => sum + r, 0)
   if (player.jailRolls.length >= escapeDieRolls || before >= escapeTargetTotal) {
@@ -79,6 +67,9 @@ export function attemptJailEscape(state: GameState, playerId: string): JailAttem
 
   const roll = rollDie()
   player.jailRolls = [...player.jailRolls, roll]
+  // The jail die spins too, and only for a throw that actually happened.
+  state.dice = [roll]
+  state.rollSeq += 1
   const rolls = player.jailRolls
   const total = rolls.reduce((sum, r) => sum + r, 0)
   const released = total >= escapeTargetTotal
@@ -96,31 +87,9 @@ export function attemptJailEscape(state: GameState, playerId: string): JailAttem
     earnRelease(state, playerId)
     addLog(state, 'jail', `${player.name} made ${total} and leaves Jail next turn.`)
     notify(state, playerId, `${player.name} rolled ${total} and gets out of Jail.`)
-    setPopup(
-      state,
-      {
-        kind: 'simple',
-        icon: '\u{1F513}',
-        title: 'OUT NEXT TURN',
-        subtitle: `${rolls.join(' + ')} = ${total}, and ${escapeTargetTotal} was needed. ${player.name} walks free at the start of their next turn.`,
-      },
-      playerId,
-    )
   } else if (finished) {
     addLog(state, 'jail', `${player.name} fell short on ${total} and stays in Jail.`)
     notify(state, playerId, `${player.name} stayed in Jail.`)
-    setPopup(
-      state,
-      {
-        kind: 'simple',
-        icon: '\u{1F512}',
-        title: 'STILL IN JAIL',
-        subtitle: `${rolls.join(' + ')} = ${total}, short of ${escapeTargetTotal}. Three fresh rolls next turn, or pay ${money(
-          payToEscape,
-        )}.`,
-      },
-      playerId,
-    )
   }
 
   return { rolls, total, released, finished: finished || left <= 0 }

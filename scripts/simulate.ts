@@ -55,7 +55,6 @@ function assertInvariants(state: GameState, context: string) {
 
 /** A simple but complete policy: buy, build, and raise cash when in debt. */
 function chooseAction(state: GameState, rng: () => number): GameAction | null {
-  if (state.popups.length > 0) return { type: 'DISMISS_POPUP' }
 
   const playerId = state.turnOrder[state.currentIndex]
   const player = state.players.find((p) => p.id === playerId)!

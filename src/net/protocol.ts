@@ -80,9 +80,13 @@ export function deviceId(): string {
  * wire, and again on each device before rendering (`maskCashExcept`), so the
  * host does not display what it must hold in order to run the bank.
  */
-export function redactFor(state: GameState, viewerPlayerId: string | null): GameState {
+export function redactFor(
+  state: GameState,
+  viewerPlayerId: string | null,
+  revealAll = false,
+): GameState {
   return {
-    ...maskCashExcept(state, (id) => id === viewerPlayerId),
+    ...maskCashExcept(state, (id) => revealAll || id === viewerPlayerId),
     // Ranked here, while the real balances are still available.
     leaderboardOrder: leaderboard(state).map((row) => row.player.id),
   }
@@ -122,6 +126,11 @@ export function guestMayDo(
     case 'REMOVE_LOBBY_PLAYER':
       return state.phase === 'setup' && action.id === guestPlayerId
 
+    // Anybody may walk away from their OWN seat, at any point, whoever's turn
+    // it is. Nobody may walk anybody else out of the game.
+    case 'LEAVE_GAME':
+      return action.playerId === guestPlayerId
+
     // Everyone takes their own opening roll, only their own, and only when
     // the roll-off has come round to them.
     case 'ROLL_FOR_ORDER':
@@ -155,14 +164,6 @@ export function guestMayDo(
     case 'RESET':
     case 'NET_SYNC':
       return false
-
-    // A card is dismissed by the player it is about, who is often NOT the
-    // player whose turn it is — Party House takes money off everyone.
-    case 'DISMISS_POPUP': {
-      const top = state.popups[0]
-      if (!top) return false
-      return top.affects === null || top.affects === guestPlayerId
-    }
 
     // Everything else is a move in the game: only on your own turn.
     default:

@@ -1,5 +1,4 @@
 import type { GameSettings } from '../data/settings'
-import type { EventCard } from '../data/unoCards'
 
 export interface Player {
   id: string
@@ -69,6 +68,15 @@ export interface PendingMove {
   from: number
   to: number
   steps: number
+  /**
+   * How many of those steps have actually been taken.
+   *
+   * The token walks one space per STEP_MOVE, and each step is part of the
+   * game state the host sends out. That is what makes every device show the
+   * same token crossing the same spaces in the same order, and what stops a
+   * move being lost when a device reconnects halfway through it.
+   */
+  taken: number
   /** Direct jumps (Go to Jail, Go to Party House) skip intermediate spaces. */
   teleport: boolean
 }
@@ -128,23 +136,6 @@ export interface TransferLeg {
   amount: number
 }
 
-export type PopupBody =
-  | { kind: 'transfer'; title: string; note?: string; legs: TransferLeg[] }
-  | { kind: 'card'; deck: 'UNO' | 'CHANCE'; card: EventCard; total: number; delta?: number }
-  | { kind: 'simple'; title: string; subtitle?: string; delta?: number; icon?: string }
-
-export interface Popup {
-  id: number
-  body: PopupBody
-  /**
-   * Whose money or turn this card is about. Only that player's device gets an
-   * actionable Continue button; everyone else just reads what happened.
-   */
-  affects: string | null
-  /** Plain sentence: "Priya lost $500 for House Repairs." */
-  summary?: string
-}
-
 export interface OrderRollEntry {
   playerId: string
   dice: number[] | null
@@ -183,6 +174,14 @@ export interface GameState {
   holdings: Record<string, Holding>
 
   dice: number[] | null
+  /**
+   * Bumped once for every throw the rules actually accept.
+   *
+   * The animation is keyed to this rather than to a click, so a die only ever
+   * spins for a roll that really happened, and it spins on every device at the
+   * same moment showing the same face. A refused roll changes nothing.
+   */
+  rollSeq: number
   /** The dice total that produced the current position — UNO/Chance reuse it. */
   lastTotal: number | null
 
@@ -207,34 +206,32 @@ export interface GameState {
 
   log: LogEntry[]
   /**
-   * Popups queue rather than replace one another, so crossing START and then
-   * landing on an event space shows both cards in order.
-   */
-  popups: Popup[]
-  /**
-   * The last thing worth telling everybody about, in one short sentence.
+   * What just happened, in short sentences, for everyone to read.
    *
-   * This is what the OTHER phones see. They are not shown the card itself —
-   * a purchase or a Chance draw is the acting player's business — only a line
-   * saying what happened. It rides along in the state, so it reaches every
-   * device the same way the board does, and needs no dismissing: each phone
-   * shows it briefly and moves on.
+   * Anything the rules have already settled — rent paid, a card drawn, Resort,
+   * Party House — is news, not a question. It appears for a few seconds and
+   * goes. Nobody is asked to press Continue on something that has already
+   * happened, and nothing waits for them.
+   *
+   * The queue lives in the game state, so every device shows the same lines in
+   * the same order. It is capped because only the recent ones matter.
    */
-  notice: GameNotice | null
+  notices: GameNotice[]
   winnerId: string | null
 
   /** Monotonic counters so ids stay stable across immutable updates. */
   nextLogId: number
-  nextPopupId: number
   nextNoticeId: number
 }
 
 export interface GameNotice {
   id: number
-  /** Already written as a whole sentence: "Priya bought Egypt." */
+  /** One line, already written: "Priya received $2,500 — Beauty Contest". */
   text: string
-  /** Whose action it was — their own device does not need telling. */
+  /** Whose turn it concerns, used to tint the line. */
   playerId: string
+  /** Which way the money went, if it moved. Drives the colour and the sound. */
+  tone: 'good' | 'bad' | 'neutral'
 }
 
 export type GameAction =
@@ -247,6 +244,8 @@ export type GameAction =
   | { type: 'ROLL_FOR_ORDER'; playerId: string }
   | { type: 'CONFIRM_ORDER' }
   | { type: 'ROLL_DICE' }
+  /** Walk the token one space. The host repeats it until the move is done. */
+  | { type: 'STEP_MOVE' }
   | { type: 'COMPLETE_MOVE' }
   | { type: 'BUY_PROPERTY' }
   | { type: 'DECLINE_PURCHASE' }
@@ -261,7 +260,6 @@ export type GameAction =
   | { type: 'SETTLE_DEBT' }
   | { type: 'DECLARE_BANKRUPT' }
   | { type: 'END_TURN' }
-  | { type: 'DISMISS_POPUP' }
   | { type: 'UPDATE_SETTINGS'; settings: GameSettings }
   | { type: 'REQUEST_PAUSE' }
   | { type: 'CANCEL_PAUSE' }
@@ -272,6 +270,8 @@ export type GameAction =
   | { type: 'END_GAME' }
   /** Host removes a player mid-game; their holdings return to the Bank. */
   | { type: 'REMOVE_PLAYER'; playerId: string }
+  /** A player chooses to walk away. Their own seat only. */
+  | { type: 'LEAVE_GAME'; playerId: string }
   /** From the results screen: carry on playing with the clock switched off. */
   | { type: 'RESUME_WITHOUT_TIMER' }
   | { type: 'RESET' }

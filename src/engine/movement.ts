@@ -5,7 +5,7 @@
  */
 
 import { BOARD, BOARD_SIZE, crossesStart, forwardDistance } from '../data/board'
-import { addLog, money, moneySentence, setPopup } from './log'
+import { addLog, money, notifyMoney } from './log'
 import { credit } from './payments'
 import { getPlayer } from './queries'
 import type { GameState } from './types'
@@ -60,18 +60,7 @@ export function awardStart(state: GameState, playerId: string): void {
     'money',
     `${player.name} completed a round and received ${money(amount)}.`,
   )
-  setPopup(
-    state,
-    {
-      kind: 'simple',
-      icon: '\u{1F389}',
-      title: 'ROUND COMPLETE',
-      subtitle: `Congratulations, you completed a round. You have won ${money(amount)}.`,
-      delta: amount,
-    },
-    playerId,
-    moneySentence(player.name, amount, 'completing a round'),
-  )
+  notifyMoney(state, playerId, player.name, amount, 'completed a round')
 }
 
 export function spaceAt(index: number) {

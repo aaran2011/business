@@ -49,6 +49,11 @@ export interface Session {
   /** How many phones have joined this host. */
   guestCount: number
   /**
+   * How many DEVICES are in this game, including this one. A device is a
+   * device — phone, tablet or laptop — so the wording never assumes a phone.
+   */
+  deviceCount: number
+  /**
    * True only when the line has been down long enough to be worth telling the
    * player about. Short blips never set it, so the badge does not flicker.
    */
@@ -59,6 +64,11 @@ export interface Session {
   addMe: (name: string, colourId: string) => void
   editMe: (patch: { name?: string; colourId?: string }) => void
   leave: () => void
+  /**
+   * Walk away from a game in progress: take this device's player out of the
+   * game properly, so the others see them go, and then disconnect.
+   */
+  leaveGame: () => void
 }
 
 export function useSession(): Session {
@@ -121,11 +131,17 @@ export function useSession(): Session {
   const publish = useCallback(
     (next: GameState, onlyTo: string | null = null) => {
       const targets = onlyTo ? [onlyTo] : Object.keys(seatsRef.current)
+      // Once the game is over the balances stop being private: the final
+      // standings are the point, and every device must be able to show the
+      // same ones. Sending the redacted state here left guests looking at a
+      // leaderboard of zeroes.
+      const over =
+        next.phase === 'gameOver' || next.phase === 'timeUp' || next.phase === 'ended'
       for (const device of targets) {
         send({
           t: 'state',
           forDevice: device,
-          state: redactFor(next, seatsRef.current[device] || null),
+          state: over ? redactFor(next, null, true) : redactFor(next, seatsRef.current[device] || null),
           seats: seatsRef.current,
         })
       }
@@ -492,6 +508,27 @@ export function useSession(): Session {
     [me, send],
   )
 
+  const leaveGame = useCallback(() => {
+    const seat = myPlayerId
+    if (roleRef.current === 'guest') {
+      // Ask the host to take us out, give the message a moment to reach it,
+      // and only then drop the connection.
+      if (seat) send({ t: 'action', deviceId: me, action: { type: 'LEAVE_GAME', playerId: seat } })
+      window.setTimeout(() => leaveRef.current(), 250)
+      return
+    }
+    // The host IS the game: without it there is nothing for the others to be
+    // connected to, so leaving ends the game rather than stranding everybody.
+    if (roleRef.current === 'host') {
+      setState((current) => {
+        const next = gameReducer(current, { type: 'END_GAME' })
+        publish(next)
+        return next
+      })
+      window.setTimeout(() => leaveRef.current(), 250)
+    }
+  }, [me, myPlayerId, publish, send])
+
   const leave = useCallback(() => {
     // Deliberately walking away is the one thing that stops the reconnecting.
     codeRef.current = null
@@ -511,7 +548,11 @@ export function useSession(): Session {
     setMyPlayerId(null)
     setSeats({})
     setError(null)
+    setState(createInitialState())
   }, [linkIsUp])
+
+  const leaveRef = useRef(leave)
+  leaveRef.current = leave
 
   useEffect(
     () => () => {
@@ -572,6 +613,7 @@ export function useSession(): Session {
     controlsPlayer,
     isHost: role !== 'guest',
     guestCount: Object.values(seats).filter(Boolean).length,
+    deviceCount: role === 'solo' ? 1 : Object.keys(seats).length + 1,
     reconnecting,
     multiplayerAvailable: multiplayerConfigured,
     startHosting,
@@ -579,5 +621,6 @@ export function useSession(): Session {
     addMe,
     editMe,
     leave,
+    leaveGame,
   }
 }

@@ -64,7 +64,7 @@ export function SetupScreen({
             </div>
             <div className="modal-body">
               <div className="code-box">
-                <span className="code-label">Put this code in on the other phones</span>
+                <span className="code-label">Put this code in on the other devices</span>
                 <span className="code-value">{state.gameCode}</span>
                 <button
                   className="btn btn-sm"
@@ -86,14 +86,14 @@ export function SetupScreen({
                 {session.status === 'connecting' && 'Opening the game to other phones…'}
                 {session.status === 'ready' &&
                   (session.guestCount === 0
-                    ? 'Open. Everyone else puts this code in on their own phone.'
-                    : `${session.guestCount} phone${session.guestCount === 1 ? '' : 's'} joined.`)}
+                    ? 'Open. Everyone else puts this code in on their own device.'
+                    : `${session.deviceCount} device${session.deviceCount === 1 ? '' : 's'} connected.`)}
                 {session.status === 'error' && (session.error ?? 'Could not open the game.')}
                 {session.status === 'idle' && 'Getting ready…'}
               </div>
 
               <div className="rent-note" style={{ background: 'transparent', padding: '10px 0 0' }}>
-                Keep this phone open — it runs the game. Everyone who joins puts in their own name
+                Keep this device open — it runs the game. Everyone who joins puts in their own name
                 and colour, and they appear in the list here.
               </div>
             </div>
@@ -167,7 +167,7 @@ export function SetupScreen({
                   )
                 })}
               </div>
-              {!mine && <span className="seat-badge">on their phone</span>}
+              {!mine && <span className="seat-badge">on their device</span>}
               {mine && !entry.isHost && lobby.length > minPlayers && (
                 <button
                   className="close-x"
@@ -185,7 +185,7 @@ export function SetupScreen({
             <div className="waiting-banner">
               <span className="waiting-dot" aria-hidden="true" />
               <div>
-                <strong>Wait for the host to start.</strong>
+                <strong>Wait for the host to start the game.</strong>
                 <div className="waiting-sub">
                   You're in as{' '}
                   {lobby.find((e) => session.controlsPlayer(e.id))?.name || 'Player'}. You can still
@@ -196,7 +196,7 @@ export function SetupScreen({
           ) : (
             <>
               <button className="btn" onClick={addLocalPlayer} disabled={full}>
-                Add player on this phone
+                Add player on this device
               </button>
               {/*
                 With no game server there is nothing behind these two, so they

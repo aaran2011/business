@@ -8,7 +8,7 @@
  */
 
 import { COUNTRIES } from '../data/properties'
-import { addLog, money, setPopup } from './log'
+import { addLog, money } from './log'
 import {
   calculatePlayerAssets,
   displayNameOf,
@@ -16,7 +16,7 @@ import {
   maxRaisableCash,
   ownedPropertyIds,
 } from './queries'
-import type { ChargeResult, DebtPayout, GameState, TransferLeg } from './types'
+import type { ChargeResult, DebtPayout, GameState } from './types'
 
 /** Unconditional credit — the bank always has funds. */
 export function credit(state: GameState, playerId: string, amount: number): void {
@@ -197,24 +197,6 @@ export function fundraisingOptions(state: GameState, playerId: string): string[]
   return options
 }
 
-
-/**
- * Show a "Player A -> $500 -> Player B" card. Only player-to-player money is
- * announced this way; payments to and from the Bank are covered by their own
- * event cards.
- */
-export function announceTransfer(
-  state: GameState,
-  title: string,
-  legs: TransferLeg[],
-  note?: string,
-  affects: string | null = null,
-  summary?: string,
-): void {
-  const real = legs.filter((l) => l.amount > 0 && l.fromId && l.toId)
-  if (!real.length) return
-  setPopup(state, { kind: 'transfer', title, legs: real, note }, affects, summary)
-}
 
 /**
  * Host removes a player mid-game. Their holdings go back to the Bank, free of

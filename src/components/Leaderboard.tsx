@@ -68,7 +68,7 @@ export function Leaderboard({
           <span className="lb-money">
             {player.cashHidden ? (
               <>
-                <strong className="lb-hidden" title="Private to that player's own phone">
+                <strong className="lb-hidden" title="Private to that player's own device">
                   •••••
                 </strong>
                 <small>private</small>
@@ -85,7 +85,7 @@ export function Leaderboard({
 
       <div className="rent-note">
         Bold figure is cash in hand. Total counts cash, property and buildings — a player with no
-        cash can still lead. On a joined phone every other player's balance shows as ••••• — it is
+        cash can still lead. On a joined device every other player's balance shows as ••••• — it is
         never sent to that device.
       </div>
     </div>

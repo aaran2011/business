@@ -9,11 +9,10 @@
 import { BOARD, JAIL_INDEX, PARTY_HOUSE_INDEX } from '../data/board'
 import { CHANCE_CARDS } from '../data/chanceCards'
 import { COUNTRIES } from '../data/properties'
-import { SPECIAL_ASSETS } from '../data/specialAssets'
 import { UNO_CARDS, type EventCard } from '../data/unoCards'
-import { addLog, money, moneySentence, notify, setPopup } from './log'
+import { addLog, money, notify, notifyMoney } from './log'
 import { moveDirectlyTo } from './movement'
-import { announceTransfer, charge, credit, transferMoney } from './payments'
+import { charge, credit, transferMoney } from './payments'
 import {
   countCountriesOwned,
   countHotels,
@@ -37,10 +36,10 @@ export function resolveLanding(state: GameState, playerId: string, total: number
   if (!space) return
 
   addLog(state, 'move', `${player.name} moved to ${space.label}.`)
-  // The plain "landed on" line goes out first. Anything more interesting that
-  // happens on this space — a purchase, rent, a card, Jail — replaces it, so
-  // the other phones only ever see the most specific thing that occurred.
-  notify(state, playerId, `${player.name} landed on ${space.label}.`)
+  // Only say "landed on X" when nothing more interesting happened there.
+  // Announcing every move as well as its consequence is the same news twice,
+  // and on a phone it buries the line that actually matters.
+  const before = state.notices.length
 
   switch (space.kind) {
     case 'start':
@@ -72,6 +71,10 @@ export function resolveLanding(state: GameState, playerId: string, total: number
       handleJailLanding(state, playerId)
       break
   }
+
+  if (state.notices.length === before && state.stage !== 'awaitingPurchase') {
+    notify(state, playerId, `${player.name} landed on ${space.label}`)
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -98,9 +101,16 @@ export function handlePropertyLanding(
   const player = getPlayer(state, playerId)
 
   if (!holding.ownerId) {
-    // Unowned — offer it. Never auto-auction.
-    state.pendingPurchase = { propertyId, price: purchasePriceOf(propertyId) }
-    state.stage = 'awaitingPurchase'
+    // Unowned. Offer it only if they can actually pay: a decision card for
+    // something out of reach is a question with one answer, so the turn just
+    // carries on instead. Never auto-auction.
+    const price = purchasePriceOf(propertyId)
+    if (player.cash >= price) {
+      state.pendingPurchase = { propertyId, price }
+      state.stage = 'awaitingPurchase'
+    } else {
+      addLog(state, 'property', `${name} costs ${money(price)} — out of ${player.name}'s reach.`)
+    }
     return
   }
 
@@ -113,12 +123,7 @@ export function handlePropertyLanding(
       return
     }
     // Transport and utility assets never take buildings.
-    setPopup(state, {
-      kind: 'simple',
-      icon: SPECIAL_ASSETS[propertyId]?.icon,
-      title: name,
-      subtitle: 'You own this asset — no rent to pay, and it never takes buildings.',
-    })
+    notify(state, playerId, `${player.name} landed on their own ${name}`)
     return
   }
 
@@ -126,12 +131,7 @@ export function handlePropertyLanding(
 
   if (holding.mortgaged) {
     addLog(state, 'property', `${name} is mortgaged — ${player.name} pays no rent.`)
-    setPopup(state, {
-      kind: 'simple',
-      icon: '\u{1F6AB}',
-      title: `${name} is mortgaged`,
-      subtitle: `No rent is collected by ${owner.name}.`,
-    })
+    notify(state, playerId, `${name} is mortgaged — no rent`)
     return
   }
 
@@ -143,18 +143,11 @@ export function handlePropertyLanding(
   addLog(state, 'money', `${player.name} paid ${owner.name} ${money(rent.amount)} rent.`)
 
   if (result === 'paid') {
-    announceTransfer(
-      state,
-      `Rent — ${name}`,
-      [{ fromId: playerId, toId: owner.id, amount: rent.amount }],
-      rent.label,
-      playerId,
-      moneySentence(player.name, -rent.amount, `rent on ${name} to ${owner.name}`),
-    )
     notify(
       state,
       playerId,
-      `${player.name} paid ${owner.name} ${money(rent.amount)} rent for ${name}.`,
+      `${player.name} paid ${owner.name} ${money(rent.amount)} rent — ${name}`,
+      'bad',
     )
   }
 }
@@ -219,12 +212,7 @@ function missingCard(
     'event',
     `${player.name} landed on ${deck} with a total of ${total} — the printed deck has no card for that total, so nothing happens.`,
   )
-  setPopup(state, {
-    kind: 'simple',
-    icon: deck === 'UNO' ? '\u{1F0CF}' : '\u{2753}',
-    title: `${deck} — No Card`,
-    subtitle: `The printed deck runs from 2 to 12, so there is no card for a total of ${total}. No effect.`,
-  })
+  notify(state, playerId, `${player.name} — ${deck} has no card for ${total}`)
 }
 
 function applyCard(
@@ -238,8 +226,6 @@ function applyCard(
   addLog(state, 'event', `${player.name} drew ${deck} ${total}: ${card.title}.`)
 
   let delta: number | undefined
-  let transferLegs: TransferLeg[] = []
-  let transferNote: string | undefined
 
   switch (card.effect.type) {
     case 'bank': {
@@ -263,16 +249,12 @@ function applyCard(
         `${deck}: ${card.title}`,
       )
       delta = collected.total
-      transferLegs = collected.legs
-      transferNote = `${money(card.effect.amount)} from each player`
       break
     }
 
     case 'payEach': {
       const paid = payEachPlayer(state, playerId, card.effect.amount, `${deck}: ${card.title}`)
       delta = -paid.total
-      transferLegs = paid.legs
-      transferNote = `${money(card.effect.amount)} to each player`
       break
     }
 
@@ -305,15 +287,12 @@ function applyCard(
         state.settings.startBonus.awardOnForcedMoveToPartyHouse,
       )
       addLog(state, 'move', `${player.name} was sent to Party House.`)
-      setPopup(state, { kind: 'card', deck, card, total })
-      // Resolve Party House immediately; it replaces the popup with its own.
       handlePartyHouse(state, playerId)
       return
     }
 
     case 'goToJail': {
       sendToJail(state, playerId)
-      setPopup(state, { kind: 'card', deck, card, total })
       return
     }
 
@@ -323,10 +302,7 @@ function applyCard(
     }
   }
 
-  const sentence = moneySentence(player.name, delta ?? 0, card.title)
-  setPopup(state, { kind: 'card', deck, card, total, delta }, playerId, sentence)
-  notify(state, playerId, sentence)
-  announceTransfer(state, card.title.toUpperCase(), transferLegs, transferNote)
+  notifyMoney(state, playerId, player.name, delta ?? 0, card.title)
 }
 
 // ---------------------------------------------------------------------------
@@ -344,19 +320,8 @@ export function handlePartyHouse(state: GameState, playerId: string): void {
     'event',
     `${player.name} landed on Party House and collected ${money(amount)} from each player (${money(total)} total).`,
   )
-  setPopup(
-    state,
-    {
-      kind: 'simple',
-      icon: '\u{1F389}',
-      title: 'PARTY HOUSE',
-      subtitle: `Collect ${money(amount)} from every other player.`,
-      delta: total,
-    },
-    playerId,
-    moneySentence(player.name, total, `Party House — ${money(amount)} from each player`),
-  )
-  announceTransfer(state, 'PARTY HOUSE', legs, `${money(amount)} from each player`)
+  notifyMoney(state, playerId, player.name, total, 'Party House')
+  void legs
 }
 
 /** The lander PAYS the amount to every other active player. */
@@ -370,19 +335,8 @@ export function handleResort(state: GameState, playerId: string): void {
     'event',
     `${player.name} landed on Resort and paid ${money(amount)} to each player (${money(total)} total).`,
   )
-  setPopup(
-    state,
-    {
-      kind: 'simple',
-      icon: '\u{1F3D6}️',
-      title: 'RESORT',
-      subtitle: `Pay ${money(amount)} to every other player.`,
-      delta: -total,
-    },
-    playerId,
-    moneySentence(player.name, -total, `Resort — ${money(amount)} to each player`),
-  )
-  announceTransfer(state, 'RESORT', legs, `${money(amount)} to each player`)
+  notifyMoney(state, playerId, player.name, -total, 'Resort')
+  void legs
 }
 
 interface Collection {
@@ -465,20 +419,8 @@ function applyDuty(
       countries === 1 ? 'y' : 'ies'
     } x ${money(perCountry)}${raw > max ? `, capped at ${money(max)}` : ''}).`,
   )
-  setPopup(
-    state,
-    {
-      kind: 'simple',
-      icon,
-      title,
-      subtitle: `${countries} countr${countries === 1 ? 'y' : 'ies'} owned x ${money(perCountry)}${
-        raw > max ? ` — capped at ${money(max)}` : ''
-      }`,
-      delta: -amount,
-    },
-    playerId,
-    moneySentence(player.name, -amount, title.toLowerCase()),
-  )
+  void icon
+  notifyMoney(state, playerId, player.name, -amount, title)
 }
 
 // ---------------------------------------------------------------------------

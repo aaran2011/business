@@ -1,0 +1,14 @@
+{
+  "name": "Business",
+  "short_name": "Business",
+  "description": "A board game for 2 to 6 players.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f6f7fb",
+  "theme_color": "#ff7a1a",
+  "icons": [
+    { "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

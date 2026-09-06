@@ -4,15 +4,15 @@
  * the UI directly except for read-only checks.
  */
 
-import { BOARD, PURCHASABLE_SPACES } from '../data/board'
+import { BOARD, PURCHASABLE_SPACES, START_INDEX } from '../data/board'
 import { PLAYER_COLOURS } from '../data/playerColours'
 import { DEFAULT_SETTINGS, type GameSettings } from '../data/settings'
 import { buildOneStep, sellBuilding } from './building'
 import { diceTotal, rollDice } from './dice'
 import { attemptJailEscape, openJailDoorIfEarned, payToEscapeJail } from './jail'
-import { addLog, money, setPopup } from './log'
+import { addLog, money, notify } from './log'
 import { mortgageProperty, unmortgageProperty } from './mortgage'
-import { movePlayer } from './movement'
+import { awardStart } from './movement'
 import { declareBankrupt, removePlayerFromGame, settleDebt } from './payments'
 import {
   activePlayers,
@@ -52,6 +52,7 @@ export function createInitialState(settings: GameSettings = DEFAULT_SETTINGS): G
     turnNumber: 0,
     holdings: emptyHoldings(),
     dice: null,
+    rollSeq: 0,
     lastTotal: null,
     paused: false,
     pauseRequested: false,
@@ -65,11 +66,9 @@ export function createInitialState(settings: GameSettings = DEFAULT_SETTINGS): G
     orderContenders: [],
     orderRollRound: 1,
     log: [],
-    popups: [],
-    notice: null,
+    notices: [],
     winnerId: null,
     nextLogId: 1,
-    nextPopupId: 1,
     nextNoticeId: 1,
   }
 }
@@ -109,6 +108,8 @@ function apply(state: GameState, action: GameAction): void {
       return confirmOrder(state)
     case 'ROLL_DICE':
       return rollMovementDice(state)
+    case 'STEP_MOVE':
+      return stepMove(state)
     case 'COMPLETE_MOVE':
       return completeMove(state)
     case 'BUY_PROPERTY':
@@ -143,9 +144,6 @@ function apply(state: GameState, action: GameAction): void {
       return
     case 'END_TURN':
       return endTurn(state)
-    case 'DISMISS_POPUP':
-      state.popups.shift()
-      return
     case 'UPDATE_SETTINGS':
       state.settings = action.settings
       addLog(state, 'system', 'House rules updated.')
@@ -166,6 +164,8 @@ function apply(state: GameState, action: GameAction): void {
       return endGameNow(state)
     case 'REMOVE_PLAYER':
       return removePlayer(state, action.playerId)
+    case 'LEAVE_GAME':
+      return leaveGame(state, action.playerId)
     case 'TIME_UP':
       return timeUp(state)
     case 'RESUME_WITHOUT_TIMER':
@@ -227,7 +227,7 @@ function timeUp(state: GameState): void {
   state.phase = 'timeUp'
   state.timer.endsAt = null
   state.timer.remainingMs = 0
-  state.popups = []
+  state.notices = []
 
   // The winner on time is the player with the greatest total wealth.
   const ranked = leaderboard(state)
@@ -246,7 +246,7 @@ function endGameNow(state: GameState): void {
   if (state.phase !== 'playing') return
   state.phase = 'ended'
   state.timer.endsAt = null
-  state.popups = []
+  state.notices = []
 
   const ranked = leaderboard(state)
   state.winnerId = ranked[0]?.player.id ?? null
@@ -260,6 +260,24 @@ function endGameNow(state: GameState): void {
 }
 
 /** Host drops a player. Play carries on without them. */
+/**
+ * A player leaves of their own accord.
+ *
+ * The same thing happens to their money and deeds as when the host removes
+ * them — the rules already say where those go — and the game carries on for
+ * everybody else. Announced, so nobody is left wondering where they went.
+ */
+function leaveGame(state: GameState, playerId: string): void {
+  const target = state.players.find((p) => p.id === playerId)
+  if (!target || target.isOut) return
+  if (state.phase === 'setup') {
+    state.lobby = state.lobby.filter((e) => e.id !== playerId)
+    return
+  }
+  notify(state, playerId, `${target.name} left the game`)
+  removePlayer(state, playerId)
+}
+
 function removePlayer(state: GameState, playerId: string): void {
   if (state.phase !== 'playing') return
   const target = state.players.find((p) => p.id === playerId)
@@ -404,6 +422,7 @@ function rollForOrder(state: GameState, playerId: string): void {
   pending.dice = dice
   pending.total = diceTotal(dice)
   state.dice = dice
+  state.rollSeq += 1
 
   addLog(
     state,
@@ -488,11 +507,13 @@ function rollMovementDice(state: GameState): void {
   const total = diceTotal(dice)
 
   state.dice = dice
+  state.rollSeq += 1
   state.lastTotal = total
   state.pendingMove = {
     from: player.position,
     to: (player.position + total) % BOARD.length,
     steps: total,
+    taken: 0,
     teleport: false,
   }
   state.stage = 'moving'
@@ -506,18 +527,54 @@ function describeRoll(dice: number[]): string {
 }
 
 /** Called once the pawn animation has finished. */
+/**
+ * Walk the token exactly one space.
+ *
+ * Movement is part of the game state, not an animation each device invents for
+ * itself. The host repeats this once per `moveStepMs` until the whole roll has
+ * been walked, and every step goes out to every device, so nobody skips a
+ * space, nobody teleports, and a device that reconnects mid-move picks the
+ * walk up exactly where it is.
+ */
+function stepMove(state: GameState): void {
+  if (state.phase !== 'playing' || state.stage !== 'moving' || !state.pendingMove) return
+  const move = state.pendingMove
+  if (move.taken >= move.steps) return completeMove(state)
+
+  const player = currentPlayer(state)
+  player.position = (player.position + 1) % BOARD.length
+  move.taken += 1
+
+  // Landing on START or passing over it pays the round bonus, once, on the
+  // step that actually reaches it.
+  if (player.position === START_INDEX) awardStart(state, player.id)
+
+  if (move.taken >= move.steps) completeMove(state)
+}
+
+/**
+ * Finish the move and resolve whatever the token is standing on.
+ *
+ * Any steps still owed are walked first. Normally there are none — the host
+ * has stepped the whole way — but this makes the action safe to send at any
+ * point, so a move can never end with the token short of where the dice said.
+ */
 function completeMove(state: GameState): void {
   if (state.stage !== 'moving' || !state.pendingMove) return
   const player = currentPlayer(state)
-  const { steps } = state.pendingMove
+  const move = state.pendingMove
+
+  while (move.taken < move.steps) {
+    player.position = (player.position + 1) % BOARD.length
+    move.taken += 1
+    if (player.position === START_INDEX) awardStart(state, player.id)
+  }
 
   state.pendingMove = null
-  movePlayer(state, player.id, steps)
   resolveLanding(state, player.id, state.lastTotal)
 
-  // Every unowned space is offered, always, with its price on screen — even
-  // when the player cannot afford it. Buying is then disabled with the reason
-  // shown, rather than the turn silently moving on.
+  // Every unowned space a player can afford is offered. One they cannot is
+  // not — there is no decision to make, so the turn simply carries on.
   state.stage = state.pendingPurchase
     ? 'awaitingPurchase'
     : state.pendingBuild
@@ -618,7 +675,6 @@ function advanceToNextPlayer(state: GameState): void {
     state.pendingMove = null
     state.pendingPurchase = null
     state.pendingBuild = null
-    state.popups = []
     // A player who earned their release last turn walks free now. Anybody
     // still in gets a clean sheet of three rolls for this turn.
     openJailDoorIfEarned(state, candidate.id)
@@ -675,12 +731,8 @@ function checkGameOver(state: GameState): void {
   state.stage = 'awaitingEndTurn'
 
   if (state.winnerId) {
-    addLog(state, 'system', `${getPlayer(state, state.winnerId).name} wins the game!`)
-    setPopup(state, {
-      kind: 'simple',
-      icon: '\u{1F3C6}',
-      title: 'WINNER',
-      subtitle: `${getPlayer(state, state.winnerId).name} is the last player standing.`,
-    })
+    const winner = getPlayer(state, state.winnerId)
+    addLog(state, 'system', `${winner.name} wins the game!`)
+    notify(state, state.winnerId, `${winner.name} wins the game`, 'good')
   }
 }

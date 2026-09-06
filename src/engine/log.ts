@@ -1,23 +1,10 @@
-import type { GameState, LogKind, PopupBody } from './types'
+import type { GameState, LogKind } from './types'
 
 const MAX_LOG_ENTRIES = 400
 
 export function addLog(state: GameState, kind: LogKind, text: string): void {
   state.log.unshift({ id: state.nextLogId++, turn: state.turnNumber, kind, text })
   if (state.log.length > MAX_LOG_ENTRIES) state.log.length = MAX_LOG_ENTRIES
-}
-
-/**
- * Queue a popup. Popups do not replace one another — crossing START and then
- * landing on Chance shows the round-complete card first, then the Chance card.
- */
-export function setPopup(
-  state: GameState,
-  body: PopupBody,
-  affects: string | null = null,
-  summary?: string,
-): void {
-  state.popups.push({ id: state.nextPopupId++, body, affects, summary })
 }
 
 /**
@@ -38,13 +25,42 @@ export function moneySentence(name: string, delta: number, reason: string): stri
  * business. `playerId` is whose action it was, so their own device can skip a
  * notice about something it just watched happen in full.
  */
-export function notify(state: GameState, playerId: string, text: string): void {
-  state.notice = { id: state.nextNoticeId++, text, playerId }
+export function notify(
+  state: GameState,
+  playerId: string,
+  text: string,
+  tone: 'good' | 'bad' | 'neutral' = 'neutral',
+): void {
+  state.notices.push({ id: state.nextNoticeId++, text, playerId, tone })
+  // Only the recent ones are ever shown; the log keeps the full history.
+  if (state.notices.length > 8) state.notices.shift()
 }
 
-/** The popup currently on screen, if any. */
-export function currentPopup(state: GameState) {
-  return state.popups[0] ?? null
+/**
+ * One line for money changing hands: who, how much, and what for.
+ *
+ * Deliberately the ONLY line for an event. Showing "Beauty Contest +$2,500"
+ * and then "Priya received $2,500 — First Prize in Beauty Contest" is the same
+ * news twice.
+ */
+export function notifyMoney(
+  state: GameState,
+  playerId: string,
+  name: string,
+  delta: number,
+  reason: string,
+): void {
+  if (delta === 0) {
+    notify(state, playerId, `${name} — ${reason}`, 'neutral')
+    return
+  }
+  const verb = delta > 0 ? 'received' : 'lost'
+  notify(
+    state,
+    playerId,
+    `${name} ${verb} ${money(Math.abs(delta))} — ${reason}`,
+    delta > 0 ? 'good' : 'bad',
+  )
 }
 
 export function money(amount: number): string {

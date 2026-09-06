@@ -119,7 +119,7 @@ const SIDE = 10
  * much past 2.2 and the longest country names (Switzerland) stop fitting.
  * The CSS grid template is derived from this, so the two can never drift.
  */
-export const TRACK_RATIO = 2.5
+export const TRACK_RATIO = 3.1
 
 /**
  * On a phone the board stops being square, and the two axes stop sharing a

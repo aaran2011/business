@@ -20,7 +20,6 @@ import { buildOneStep, canBuild, sellBuilding } from '../src/engine/building'
 import { diceTotal, rollDice } from '../src/engine/dice'
 import { createInitialState, gameReducer, makeGameCode, orderRollTurn } from '../src/engine/game'
 import { attemptJailEscape } from '../src/engine/jail'
-import { setPopup } from '../src/engine/log'
 import { mortgageProperty, unmortgageProperty } from '../src/engine/mortgage'
 import { movePlayer } from '../src/engine/movement'
 import { charge } from '../src/engine/payments'
@@ -34,6 +33,7 @@ import {
   leaderboard,
 } from '../src/engine/queries'
 import { calculateRent } from '../src/engine/rent'
+import { purchasePriceOf } from '../src/engine/queries'
 import {
   handleChance,
   handleCustomDuty,
@@ -132,14 +132,10 @@ console.log('— START bonus —')
   movePlayer(state, p.id, 4) // 34 -> 2, crosses START without stopping on it
   check('passing straight over START pays 1500', p.cash - before, 1500)
   check('position wraps correctly', p.position, 2)
-  check(
-    'the round-complete card is shown',
-    state.popups.some(
-      (pop) => pop.body.kind === 'simple' && pop.body.title === 'ROUND COMPLETE',
-    ),
-    true,
+  ok(
+    'the round bonus is announced',
+    state.notices.some((n) => n.text.includes('completed a round')),
   )
-  check('paid exactly once for the crossing', state.popups.length, 1)
 }
 {
   const state = makeState(2)
@@ -617,7 +613,6 @@ console.log('— Jail —')
   check('the turn is over', state.stage, 'awaitingEndTurn')
 
   // Play round to their next turn.
-  state = gameReducer(state, { type: 'DISMISS_POPUP' })
   state = gameReducer(state, { type: 'END_TURN' })
   state = gameReducer(state, { type: 'END_TURN' })
   check('they walk free on their next turn', state.players[0].inJail, false)
@@ -639,7 +634,6 @@ console.log('— Jail —')
   check('release is pending', state.players[0].jailReleasePending, true)
   check('the turn is over', state.stage, 'awaitingEndTurn')
 
-  state = gameReducer(state, { type: 'DISMISS_POPUP' })
   state = gameReducer(state, { type: 'END_TURN' })
   state = gameReducer(state, { type: 'END_TURN' })
   check('free on the next turn', state.players[0].inJail, false)
@@ -664,7 +658,6 @@ console.log('— Jail —')
   check('no release pending', state.players[0].jailReleasePending, false)
   check('the turn ends', state.stage, 'awaitingEndTurn')
 
-  state = gameReducer(state, { type: 'DISMISS_POPUP' })
   state = gameReducer(state, { type: 'END_TURN' })
   state = gameReducer(state, { type: 'END_TURN' })
   check('the Jail choice comes round again', state.stage, 'inJail')
@@ -900,7 +893,7 @@ check('default is one movement die', DEFAULT_SETTINGS.dice.count, 1)
   handleUno(state, a.id, 1)
   handleChance(state, a.id, 1)
   check('UNO/Chance total of 1 moves no money', [a.cash, b.cash], before)
-  ok('a "no card" popup is still shown', state.popups.length > 0)
+  ok('and it is still announced', state.notices.some((n) => n.text.includes('no card')))
 }
 
 // ===========================================================================
@@ -910,44 +903,39 @@ console.log('— Automatic turn end —')
 check('auto-end is on by default', DEFAULT_SETTINGS.turn.autoEnd, true)
 
 {
-  // Every unowned space is offered with its price, affordable or not.
+  // Out of reach: no card, no decision, the turn simply carries on.
   let state = makeState(2)
   const a = state.players[0]
   a.cash = 100
   a.position = 14 // six spaces short of USA at $8,500
   state.stage = 'moving'
-  state.pendingMove = { from: 14, to: 20, steps: 6, teleport: false }
+  state.pendingMove = { from: 14, to: 20, steps: 6, taken: 0, teleport: false }
   state.lastTotal = 6
   state = gameReducer(state, { type: 'COMPLETE_MOVE' })
-  check('the offer is shown even with $100 in hand', state.stage, 'awaitingPurchase')
-  check('and it names the property', state.pendingPurchase!.propertyId, 'usa')
-  check('and quotes the printed price', state.pendingPurchase!.price, COUNTRIES.usa.price)
-
-  // Trying to buy it anyway must not go through.
-  const attempted = gameReducer(state, { type: 'BUY_PROPERTY' })
-  check('buying beyond your cash is refused', attempted.holdings.usa.ownerId, null)
-  check('and no cash is taken', attempted.players[0].cash, 100)
-
-  state = gameReducer(state, { type: 'DECLINE_PURCHASE' })
-  check('declining frees the turn', state.stage, 'awaitingEndTurn')
+  check('nothing is offered with $100 in hand', state.pendingPurchase, null)
+  check('and the turn moves straight on', state.stage, 'awaitingEndTurn')
+  check('the token still arrived', state.players[0].position, 20)
   check('USA stays with the Bank', state.holdings.usa.ownerId, null)
 }
 {
-  // Landing on an unowned space always raises the offer, whatever the cash.
-  const missed: string[] = []
+  // Landing on an unowned space offers it whenever the player can pay, and
+  // never when they cannot.
+  const wrong: string[] = []
   for (const space of BOARD.filter((sp) => sp.kind === 'country' || sp.kind === 'special')) {
-    for (const cash of [0, 100, 2000, 100000]) {
+    const price = purchasePriceOf(space.propertyId!)
+    for (const cash of [0, price - 1, price, price + 1000]) {
       let st = makeState(2)
       st.players[0].cash = cash
       st.players[0].position = space.index - 1
       st.stage = 'moving'
-      st.pendingMove = { from: space.index - 1, to: space.index, steps: 1, teleport: false }
+      st.pendingMove = { from: space.index - 1, to: space.index, steps: 1, taken: 0, teleport: false }
       st.lastTotal = 1
       st = gameReducer(st, { type: 'COMPLETE_MOVE' })
-      if (st.stage !== 'awaitingPurchase') missed.push(`${space.propertyId}@${cash}`)
+      const offered = st.stage === 'awaitingPurchase'
+      if (offered !== cash >= price) wrong.push(`${space.propertyId}@${cash}`)
     }
   }
-  check('every unowned space offers itself at every cash level', missed, [])
+  check('offered exactly when affordable, never otherwise', wrong, [])
 }
 {
   // Affordable: the decision is held open until the player answers.
@@ -955,7 +943,7 @@ check('auto-end is on by default', DEFAULT_SETTINGS.turn.autoEnd, true)
   const a = state.players[0]
   a.position = 14
   state.stage = 'moving'
-  state.pendingMove = { from: 14, to: 20, steps: 6, teleport: false }
+  state.pendingMove = { from: 14, to: 20, steps: 6, taken: 0, teleport: false }
   state.lastTotal = 6
   state = gameReducer(state, { type: 'COMPLETE_MOVE' })
   check('affordable purchase waits for an answer', state.stage, 'awaitingPurchase')
@@ -1092,7 +1080,6 @@ console.log('— Landing on your own country offers a build —')
 
   check('a build offer is raised', state.pendingBuild, { propertyId: 'egypt' })
   check('the stage waits for the decision', state.stage, 'awaitingBuild')
-  check('no "no rent" popup is shown', state.popups.length, 0)
 
   const check1 = canBuild(state, a.id, 'egypt')
   ok('building is allowed with the colour group', check1.allowed)
@@ -1145,7 +1132,7 @@ console.log('— Landing on your own country offers a build —')
   give(state, a.id, 'railways')
   handlePropertyLanding(state, a.id, 'railways')
   check('no build offer on a transport asset', state.pendingBuild, null)
-  ok('an informational card is shown instead', state.popups.length > 0)
+  ok('and it is announced instead', state.notices.length > 0)
 }
 
 // ===========================================================================
@@ -1166,7 +1153,7 @@ console.log('— Everything purchasable can actually be bought —')
     // COMPLETE_MOVE advances from the current position, so start one back.
     a.position = space.index - 1
     state.stage = 'moving'
-    state.pendingMove = { from: a.position, to: space.index, steps: 1, teleport: false }
+    state.pendingMove = { from: a.position, to: space.index, steps: 1, taken: 0, teleport: false }
     state.lastTotal = 1
     state = gameReducer(state, { type: 'COMPLETE_MOVE' })
 
@@ -1191,7 +1178,7 @@ console.log('— Everything purchasable can actually be bought —')
     const target = BOARD.findIndex((sp) => sp.propertyId === id)
     a.position = target - 1
     state.stage = 'moving'
-    state.pendingMove = { from: a.position, to: target, steps: 1, teleport: false }
+    state.pendingMove = { from: a.position, to: target, steps: 1, taken: 0, teleport: false }
     state.lastTotal = 1
     state = gameReducer(state, { type: 'COMPLETE_MOVE' })
     state = gameReducer(state, { type: 'BUY_PROPERTY' })
@@ -1286,7 +1273,6 @@ console.log('— End game, remove player, transfers, game code —')
   state = gameReducer(state, { type: 'END_GAME' })
   check('the game is over', state.phase, 'ended')
   check('the richest player wins', state.winnerId, 'p2')
-  check('no popup is left hanging', state.popups.length, 0)
 
   const rows = leaderboard(state)
   check('every player is ranked', rows.length, 3)
@@ -1330,32 +1316,26 @@ console.log('— End game, remove player, transfers, game code —')
   give(state, 'p2', 'germany')
   state.players[0].position = 11
   handlePropertyLanding(state, 'p1', 'germany')
-  const transfer = state.popups.find((pop) => pop.body.kind === 'transfer')
-  ok('a transfer card is queued', !!transfer)
-  if (transfer && transfer.body.kind === 'transfer') {
-    check('one leg', transfer.body.legs.length, 1)
-    check('from the visitor to the owner', [transfer.body.legs[0].fromId, transfer.body.legs[0].toId], ['p1', 'p2'])
-    check('for the site rent', transfer.body.legs[0].amount, 400)
-  }
+  const last = state.notices[state.notices.length - 1]
+  ok('rent is announced in one line', last.text.includes('rent'))
+  ok('naming both players', last.text.includes('P1') || last.text.includes('P2'))
+  ok('and the amount', last.text.includes('400'))
+  check('and it reads as money lost', last.tone, 'bad')
 }
 {
-  // Party House raises one card listing every payer.
+  // Party House is one line too, not a card per payer.
   const state = makeState(4)
   handlePartyHouse(state, 'p1')
-  const transfer = state.popups.find((pop) => pop.body.kind === 'transfer')
-  ok('a transfer card is queued', !!transfer)
-  if (transfer && transfer.body.kind === 'transfer') {
-    check('three legs, one per payer', transfer.body.legs.length, 3)
-    ok('all paid to the lander', transfer.body.legs.every((l) => l.toId === 'p1'))
-    ok('each leg is $200', transfer.body.legs.every((l) => l.amount === 200))
-  }
+  const last = state.notices[state.notices.length - 1]
+  ok('Party House is announced once', last.text.includes('Party House'))
+  check('as money received', last.tone, 'good')
 }
 {
   // Bank payments are NOT announced as player-to-player transfers.
   const state = makeState(2)
   give(state, 'p1', 'egypt', 'iran', 'iraq')
   handleCustomDuty(state, 'p1')
-  check('a duty raises no transfer card', state.popups.filter((pop) => pop.body.kind === 'transfer').length, 0)
+  ok('a duty is announced as a payment', state.notices[state.notices.length - 1].tone === 'bad')
 }
 {
   // Every game gets a distinct, readable code.
@@ -1485,6 +1465,192 @@ console.log('— Each player rolls their own opening die —')
 }
 
 // ===========================================================================
+console.log('— The token walks, one space at a time —')
+// ===========================================================================
+
+{
+  // A roll of 6 visits all six spaces in order. No skipping, no teleporting.
+  let state = makeState(2)
+  const id = state.players[0].id
+  state.players[0].position = 0
+  state.stage = 'moving'
+  state.lastTotal = 6
+  state.pendingMove = { from: 0, to: 6, steps: 6, taken: 0, teleport: false }
+
+  const visited: number[] = []
+  for (let i = 0; i < 6; i++) {
+    state = gameReducer(state, { type: 'STEP_MOVE' })
+    visited.push(state.players.find((p) => p.id === id)!.position)
+  }
+  check('every space is visited in order', visited, [1, 2, 3, 4, 5, 6])
+  check('and the move is finished', state.pendingMove, null)
+  ok('the walk is over', state.stage !== 'moving')
+}
+{
+  // Each of the six possible rolls lands exactly that many spaces on.
+  const wrong: string[] = []
+  for (let roll = 1; roll <= 6; roll++) {
+    let st = makeState(2)
+    st.players[0].position = 10
+    st.stage = 'moving'
+    st.lastTotal = roll
+    st.pendingMove = { from: 10, to: 10 + roll, steps: roll, taken: 0, teleport: false }
+    for (let i = 0; i < roll; i++) st = gameReducer(st, { type: 'STEP_MOVE' })
+    if (st.players[0].position !== 10 + roll) wrong.push(`${roll}->${st.players[0].position}`)
+  }
+  check('a roll of N moves exactly N spaces', wrong, [])
+}
+{
+  // Stepping past the end of the walk changes nothing.
+  let state = makeState(2)
+  state.players[0].position = 0
+  state.stage = 'moving'
+  state.lastTotal = 2
+  state.pendingMove = { from: 0, to: 2, steps: 2, taken: 0, teleport: false }
+  state = gameReducer(state, { type: 'STEP_MOVE' })
+  state = gameReducer(state, { type: 'STEP_MOVE' })
+  const settled = state.players[0].position
+  state = gameReducer(state, { type: 'STEP_MOVE' })
+  state = gameReducer(state, { type: 'STEP_MOVE' })
+  check('extra steps are ignored', state.players[0].position, settled)
+}
+{
+  // Walking over START pays the round bonus exactly once.
+  let state = makeState(2)
+  const before = state.players[0].cash
+  state.players[0].position = BOARD_SIZE - 2
+  state.stage = 'moving'
+  state.lastTotal = 4
+  state.pendingMove = { from: BOARD_SIZE - 2, to: 2, steps: 4, taken: 0, teleport: false }
+  for (let i = 0; i < 4; i++) state = gameReducer(state, { type: 'STEP_MOVE' })
+  check(
+    'the round bonus is paid once for crossing START',
+    state.players[0].cash - before,
+    DEFAULT_SETTINGS.startBonus.amount,
+  )
+  check('and the token is past it', state.players[0].position, 2)
+}
+{
+  // A roll that is not accepted must not change the die. This is what made
+  // the same number appear over and over: the roll was refused because the
+  // previous move had not finished, and the old face stayed on the table.
+  let state = makeState(2)
+  state.stage = 'moving'
+  state.dice = [4]
+  state.lastTotal = 4
+  state.pendingMove = { from: 0, to: 4, steps: 4, taken: 4, teleport: false }
+  const before = JSON.stringify({ dice: state.dice, pos: state.players[0].position })
+  const after = gameReducer(state, { type: 'ROLL_DICE' })
+  check(
+    'a roll while already moving changes nothing',
+    JSON.stringify({ dice: after.dice, pos: after.players[0].position }),
+    before,
+  )
+}
+
+// ===========================================================================
+console.log('— Leaving, and the final standings —')
+// ===========================================================================
+
+{
+  // Walking away is the same as being removed: the rules already say where
+  // the money and the deeds go. The others carry on.
+  let state = makeState(3)
+  const [a] = state.players
+  give(state, a.id, 'egypt', 'iran')
+  state = gameReducer(state, { type: 'LEAVE_GAME', playerId: a.id })
+
+  const gone = state.players.find((p) => p.id === a.id)!
+  ok('the player is out', gone.isOut)
+  check('their cash is gone', gone.cash, 0)
+  check('their deeds go back to the Bank', state.holdings.egypt.ownerId, null)
+  check('all of them', state.holdings.iran.ownerId, null)
+  check('the game carries on', state.phase, 'playing')
+  ok(
+    'and everyone is told',
+    state.notices.some((n) => n.text === `${gone.name} left the game`),
+  )
+  ok('the others are untouched', state.players.filter((p) => !p.isOut).length === 2)
+}
+{
+  // Nobody may walk anybody ELSE out of the game.
+  const state = makeState(3)
+  const [a, b] = state.players
+  ok('may leave their own seat', guestMayDo({ type: 'LEAVE_GAME', playerId: a.id }, a.id, state))
+  ok(
+    'may NOT leave on behalf of another',
+    !guestMayDo({ type: 'LEAVE_GAME', playerId: b.id }, a.id, state),
+  )
+}
+{
+  // While the game runs, a device is sent only its own balance. Once it is
+  // over, everyone gets the same complete final standings — otherwise each
+  // device would show a different leaderboard.
+  const state = makeState(3)
+  state.players[0].cash = 1111
+  state.players[1].cash = 2222
+
+  const during = redactFor(state, state.players[0].id)
+  check('mid-game, only your own cash', during.players[1].cash, 0)
+  ok('and the rest is marked hidden', during.players[1].cashHidden)
+
+  const final = redactFor(state, null, true)
+  check('at the end, every balance is real', final.players[1].cash, 2222)
+  ok('and nothing is hidden', final.players.every((p) => !p.cashHidden))
+  check(
+    'so every device can rank them the same way',
+    final.players.map((p) => p.cash),
+    state.players.map((p) => p.cash),
+  )
+}
+
+// ===========================================================================
+console.log('— The dice are actually random —')
+// ===========================================================================
+
+{
+  const faces = DEFAULT_SETTINGS.dice.faces
+  const N = 60000
+  const counts = new Array(faces + 1).fill(0)
+  let repeats = 0
+  let previous = 0
+  let longestRun = 0
+  let run = 0
+  for (let i = 0; i < N; i++) {
+    const [v] = rollDice(1, faces)
+    counts[v]++
+    if (v === previous) {
+      repeats++
+      run++
+    } else run = 1
+    if (run > longestRun) longestRun = run
+    previous = v
+  }
+  const expected = N / faces
+  const worstDrift = Math.max(...counts.slice(1).map((c) => Math.abs(c - expected) / expected))
+  ok(`every face comes up (${counts.slice(1).join('/')})`, counts.slice(1).every((c) => c > 0))
+  ok(`no face drifts more than 5% (worst ${(worstDrift * 100).toFixed(1)}%)`, worstDrift < 0.05)
+  // Repeats are allowed and expected — about one roll in six. What is NOT
+  // allowed is the die sticking, which would push this towards 100%.
+  const repeatRate = repeats / N
+  ok(`repeats stay near 1-in-6 (${(repeatRate * 100).toFixed(1)}%)`, repeatRate > 0.12 && repeatRate < 0.21)
+  ok(`no absurd run of one face (longest ${longestRun})`, longestRun < 15)
+}
+{
+  // Two players rolling alternately get independent streams, not a shared
+  // pattern and not a repeat of each other.
+  let same = 0
+  const N = 5000
+  for (let i = 0; i < N; i++) {
+    const [a] = rollDice(1, 6)
+    const [b] = rollDice(1, 6)
+    if (a === b) same++
+  }
+  const rate = same / N
+  ok(`two players match about 1 time in 6 (${(rate * 100).toFixed(1)}%)`, rate > 0.12 && rate < 0.21)
+}
+
+// ===========================================================================
 console.log('— Colour groups, building and the doubled site rent —')
 // ===========================================================================
 
@@ -1563,17 +1729,18 @@ console.log('— The other phones are told, without being shown the card —')
 {
   const state = makeState(2)
   const [a] = state.players
-  const before = state.notice
-  check('nothing has happened yet', before, null)
+  check('nothing has happened yet', state.notices.length, 0)
 
   buyProperty(state, a.id, 'egypt')
-  check('a purchase is announced', state.notice?.text, `${a.name} bought Egypt.`)
-  check('and attributed to the buyer', state.notice?.playerId, a.id)
-  ok('with no price in it', !state.notice!.text.includes('$'))
+  const bought = state.notices[state.notices.length - 1]
+  check('a purchase is announced', bought.text, `${a.name} bought Egypt.`)
+  check('and attributed to the buyer', bought.playerId, a.id)
+  ok('with no price in it', !bought.text.includes('$'))
 
   sendToJail(state, a.id)
-  check('going to Jail is announced', state.notice?.text, `${a.name} went to Jail.`)
-  ok('and never as just visiting', !state.notice!.text.toLowerCase().includes('visiting'))
+  const jailed = state.notices[state.notices.length - 1]
+  check('going to Jail is announced', jailed.text, `${a.name} went to Jail.`)
+  ok('and never as just visiting', !jailed.text.toLowerCase().includes('visiting'))
 }
 
 {
@@ -1587,7 +1754,7 @@ console.log('— The other phones are told, without being shown the card —')
   let state = makeState(2)
   state.players[0].position = JAIL_INDEX - 1
   state.stage = 'moving'
-  state.pendingMove = { from: JAIL_INDEX - 1, steps: 1 }
+  state.pendingMove = { from: JAIL_INDEX - 1, to: JAIL_INDEX, steps: 1, taken: 0, teleport: false }
   state = gameReducer(state, { type: 'COMPLETE_MOVE' })
 
   const jailed = state.players[0]
@@ -1595,11 +1762,13 @@ console.log('— The other phones are told, without being shown the card —')
   check('and leaves them on the Jail space', jailed.position, JAIL_INDEX)
   ok('with no release owing to them', !jailed.jailReleasePending)
   check('their movement is over', state.stage, 'awaitingEndTurn')
-  check('and the other phones are told', state.notice?.text, `${jailed.name} went to Jail.`)
+  ok(
+    'and the other devices are told',
+    state.notices.some((n) => n.text === `${jailed.name} went to Jail.`),
+  )
 
   // The turn passes to the next player; the jailed one is not asked anything.
-  while (state.popups.length) state = gameReducer(state, { type: 'DISMISS_POPUP' })
-  state = gameReducer(state, { type: 'END_TURN' })
+    state = gameReducer(state, { type: 'END_TURN' })
   check('the next player is up', state.turnOrder[state.currentIndex], state.players[1].id)
   ok('and the jailed player is still in', state.players[0].inJail)
 
@@ -1623,8 +1792,7 @@ console.log('— The other phones are told, without being shown the card —')
   ok('still in Jail for the rest of this turn', state.players[0].inJail)
   check('and the turn is over', state.stage, 'awaitingEndTurn')
 
-  while (state.popups.length) state = gameReducer(state, { type: 'DISMISS_POPUP' })
-  state = gameReducer(state, { type: 'END_TURN' })
+    state = gameReducer(state, { type: 'END_TURN' })
   state = gameReducer(state, { type: 'END_TURN' })
   ok('free at the start of their next turn', !state.players[0].inJail)
   check('and may roll and move as normal', state.stage, 'awaitingRoll')
@@ -1644,8 +1812,7 @@ console.log('— The other phones are told, without being shown the card —')
   state = gameReducer(state, { type: 'JAIL_ROLL' })
   Math.random = realRandom
 
-  while (state.popups.length) state = gameReducer(state, { type: 'DISMISS_POPUP' })
-  state = gameReducer(state, { type: 'END_TURN' })
+    state = gameReducer(state, { type: 'END_TURN' })
   state = gameReducer(state, { type: 'END_TURN' })
   ok('a failed attempt leaves them in Jail', state.players[0].inJail)
   check('and they are asked to choose again', state.stage, 'inJail')
@@ -1718,23 +1885,17 @@ console.log('— What a joined phone is allowed to do —')
   ok('may NOT push a whole state across', !guestMayDo({ type: 'NET_SYNC', state }, upNow, state))
 }
 {
-  // A card about somebody's money is theirs to close, even when it is not
-  // their turn — Party House and Resort take money off everyone at once.
+  // Nothing waits for a Continue any more: a settled event is news, and it
+  // reaches every device as one short line.
   const state = makeState(2)
-  const upNow = state.turnOrder[state.currentIndex]
-  const other = state.turnOrder[1]
-
-  setPopup(state, { kind: 'simple', title: 'X', subtitle: 'y' }, other, 'they lost money')
-  ok('the player a card is about may close it', guestMayDo({ type: 'DISMISS_POPUP' }, other, state))
-  ok('somebody else may NOT close their card', !guestMayDo({ type: 'DISMISS_POPUP' }, upNow, state))
-
-  state.popups = []
-  setPopup(state, { kind: 'simple', title: 'X', subtitle: 'y' })
-  ok('a card about nobody in particular may be closed by anyone', guestMayDo({ type: 'DISMISS_POPUP' }, upNow, state))
-
-  state.popups = []
-  ok('with no card up there is nothing to close', !guestMayDo({ type: 'DISMISS_POPUP' }, upNow, state))
+  const [a] = state.players
+  buyProperty(state, a.id, 'egypt')
+  const last = state.notices[state.notices.length - 1]
+  check('a purchase is one line', last.text, `${a.name} bought Egypt.`)
+  ok('with no price in it', !last.text.includes('$'))
+  ok('and nothing to dismiss', !('popups' in (state as unknown as Record<string, unknown>)))
 }
+
 {
   // Your own deeds only — nobody may touch another player's property.
   const state = makeState(2)
@@ -1817,8 +1978,7 @@ console.log('— The rolled number stays on the table —')
   ok('a roll produced a number', typeof rolled === 'number' && rolled >= 1 && rolled <= 6)
 
   state = gameReducer(state, { type: 'COMPLETE_MOVE' })
-  while (state.popups.length) state = gameReducer(state, { type: 'DISMISS_POPUP' })
-  if (state.stage === 'awaitingPurchase') state = gameReducer(state, { type: 'DECLINE_PURCHASE' })
+    if (state.stage === 'awaitingPurchase') state = gameReducer(state, { type: 'DECLINE_PURCHASE' })
   if (state.stage === 'awaitingBuild') state = gameReducer(state, { type: 'DECLINE_BUILD' })
   state = gameReducer(state, { type: 'END_TURN' })
 

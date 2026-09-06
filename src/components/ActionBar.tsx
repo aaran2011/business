@@ -56,7 +56,6 @@ export function ActionBar({
 
   const inJail = state.stage === 'inJail' && !busy
   const purchase = state.stage === 'awaitingPurchase' ? state.pendingPurchase : null
-  const canAfford = purchase ? player.cash >= purchase.price : false
   const buildOffer = state.stage === 'awaitingBuild' ? state.pendingBuild : null
   const buildCheck = buildOffer
     ? canBuild(state, player.id, buildOffer.propertyId)
@@ -65,6 +64,7 @@ export function ActionBar({
 
   return (
     <div className="actionbar">
+      {/* Jail is manual: nothing rolls for the player, they choose. */}
       {inJail ? (
         <>
           <button
@@ -89,7 +89,7 @@ export function ActionBar({
         </>
       ) : null}
 
-      {purchase && canAfford && (
+      {purchase && (
         <>
           <button className="btn btn-good" onClick={() => dispatch({ type: 'BUY_PROPERTY' })}>
             Buy {displayNameOf(purchase.propertyId)} — {money(purchase.price)}
@@ -98,12 +98,6 @@ export function ActionBar({
             Don't buy
           </button>
         </>
-      )}
-      {/* No Buy button, and nothing suggesting one: they simply cannot buy it. */}
-      {purchase && !canAfford && (
-        <button className="btn" onClick={() => dispatch({ type: 'DECLINE_PURCHASE' })}>
-          Continue
-        </button>
       )}
 
       {buildOffer && buildCheck.allowed && (
@@ -133,7 +127,7 @@ export function ActionBar({
         Raising cash is still possible on any other turn, and always when a
         debt has to be settled.
       */}
-      {ownsAnything && (!purchase || canAfford || inDebt) && (
+      {ownsAnything && (
         <button className="btn" onClick={onManage} disabled={busy}>
           Build / Sell / Mortgage
         </button>

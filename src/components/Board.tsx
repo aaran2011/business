@@ -71,8 +71,6 @@ const KIND_COLOUR: Record<string, string> = {
 
 interface BoardProps {
   state: GameState
-  /** Animated pawn positions, which lag behind state during a move. */
-  displayPositions: Record<string, number>
   rolling: boolean
   rollId: number
   centreStatus: string
@@ -92,7 +90,6 @@ interface BoardProps {
 
 export function Board({
   state,
-  displayPositions,
   rolling,
   rollId,
   centreStatus,
@@ -104,10 +101,8 @@ export function Board({
   centreCard,
 }: BoardProps) {
   const ratio = useTrackRatio()
-  const activeIndex =
-    state.phase === 'playing'
-      ? displayPositions[state.turnOrder[state.currentIndex]]
-      : undefined
+  const current = state.players.find((p) => p.id === state.turnOrder[state.currentIndex])
+  const activeIndex = state.phase === 'playing' ? current?.position : undefined
 
   return (
     <div className="board-wrap">
@@ -203,7 +198,11 @@ export function Board({
           )
         })}
 
-        <div className="board-centre">
+        {/* `--turn` is the colour of whoever is up; the centre reads from it. */}
+        <div
+          className="board-centre"
+          style={{ '--turn': dieColour ?? 'transparent' } as CSSProperties}
+        >
           {centreCard ?? (
             <>
               <BoardCentre />
@@ -238,7 +237,9 @@ export function Board({
         <div className="pawn-layer">
           {state.players.map((player, i) => {
             if (player.isOut) return null
-            const index = displayPositions[player.id] ?? player.position
+            // Straight from the game state. The token is wherever the rules
+            // say it is — there is no second, animated copy to drift from it.
+            const index = player.position
             const rect = cellRectFor(index, ratio)
             const perRow = 3
             const col = i % perRow
