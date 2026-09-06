@@ -376,25 +376,29 @@ button:disabled {
 
 /*
  * Who owns this country, shown ON the country itself in the owner's colour.
- * It sits in the corner of the white area, clear of the flag, the name and the
- * price, and has a pixel floor so it stays visible on a phone.
+ *
+ * A small corner dot was easy to miss at a glance across a whole board, so it
+ * now fills the free part of the white area: a broad band across the bottom of
+ * the space, under the flag, the name and the price. It reads as "this one is
+ * theirs" from arm's length without covering a single piece of information —
+ * the text sits above it, in padding reserved for exactly this.
  */
 .cell-owner {
   position: absolute;
-  top: 0.6cqi;
+  left: 0.6cqi;
   right: 0.6cqi;
-  width: max(9px, 2.5cqi);
-  height: max(9px, 2.5cqi);
-  border-radius: 50%;
-  border: max(1.5px, 0.3cqi) solid #fff;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.35);
+  bottom: 0.6cqi;
+  height: max(11px, 2.9cqi);
+  border-radius: 999px;
+  border: max(1.5px, 0.28cqi) solid #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.3);
   z-index: 2;
 }
 
-/* The bottom edge is drawn upside down, so the free corner is the other one. */
+/* The bottom edge is drawn upside down, so the free strip is the other one. */
 .cell.edge-bottom .cell-owner {
-  top: auto;
-  bottom: 0.6cqi;
+  bottom: auto;
+  top: 0.6cqi;
 }
 
 .cell-buildings {
@@ -2475,8 +2479,7 @@ button:disabled {
   }
 
   .cell-owner {
-    width: max(9px, 3cqi);
-    height: max(9px, 3cqi);
+    height: max(10px, 3.2cqi);
   }
 
   .building-icon {
@@ -3225,4 +3228,143 @@ button:disabled {
     font-size: 10px;
     line-height: 1.35;
   }
+}
+
+/* ------------------------------------------------ money between players
+
+   Rent, Resort, Party House and the cards that collect from everyone are not
+   just a line — they are a card showing who paid whom, how much and what for,
+   and they go to the payer as well as everybody else. */
+
+.notice-transfer {
+  padding: 12px 16px;
+  text-align: left;
+}
+
+.notice-reason {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  opacity: 0.85;
+  margin-bottom: 8px;
+  text-align: center;
+}
+
+.notice-legs {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.notice-leg {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 13.5px;
+  font-weight: 700;
+}
+
+.notice-party {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+}
+
+.notice-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1.5px solid rgba(255, 255, 255, 0.9);
+  flex: none;
+}
+
+.notice-arrow {
+  opacity: 0.7;
+  font-size: 12px;
+}
+
+.notice-amount {
+  font-variant-numeric: tabular-nums;
+  font-weight: 900;
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------ whose turn it is
+
+   The name sits above the die, at a size you can read across a table, in that
+   player's own colour. It was a line of small grey text before, which is not
+   something you notice from across a room. */
+
+.turn-name {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-bottom: 1cqi;
+  font-size: max(15px, 2.6cqi);
+  line-height: 1.1;
+  color: var(--text);
+  letter-spacing: -0.01em;
+}
+
+.turn-name strong {
+  font-weight: 900;
+}
+
+.turn-name-dot {
+  width: max(12px, 2.2cqi);
+  height: max(12px, 2.2cqi);
+  border-radius: 50%;
+  border: 2px solid #fff;
+  box-shadow: 0 1px 4px rgba(20, 40, 80, 0.3);
+  flex: none;
+}
+
+/* ------------------------------------- room for the ownership band and pawns
+
+   The left and right edge spaces are the short ones — about 49px tall on a
+   phone — and they have to hold a flag, a name, a price, the owner's band and
+   any tokens standing there. The flag is the part that can afford to give way,
+   so on those two edges it is smaller and the lines are tighter. Everything
+   else keeps its size; the text must never end up underneath the band. */
+
+.cell.edge-left .cell-flag,
+.cell.edge-right .cell-flag,
+.cell.edge-left .cell-icon,
+.cell.edge-right .cell-icon {
+  font-size: min(2cqi, 13px);
+}
+
+.cell.edge-left .cell-name,
+.cell.edge-right .cell-name {
+  line-height: 1;
+}
+
+.cell.edge-left .cell-body,
+.cell.edge-right .cell-body {
+  gap: 0.15cqi;
+}
+
+/* The band sits flush in the strip kept clear at the inner edge. */
+.cell-owner {
+  height: max(9px, 2.4cqi);
+  bottom: 0.4cqi;
+  left: 0.5cqi;
+  right: 0.5cqi;
+}
+
+.cell.edge-bottom .cell-owner {
+  bottom: auto;
+  top: 0.4cqi;
+}
+
+/* The two short edges get a slimmer band still: a wrapped name like
+   "Water-ways" pushes the price down, and the text wins over the band. */
+.cell.edge-left .cell-owner,
+.cell.edge-right .cell-owner {
+  height: max(7px, 1.9cqi);
+  bottom: 0.2cqi;
 }

@@ -1,21 +1,26 @@
 import { useEffect, useRef, useState } from 'react'
-import type { GameNotice } from '../engine/types'
+import { money } from '../engine/log'
+import type { GameNotice, GameState } from '../engine/types'
 
 /**
- * What just happened, in one line, for three seconds.
+ * What just happened, for five seconds.
  *
- * Two rules make this useful rather than noisy:
+ * Two kinds of thing come through here.
  *
- * AUDIENCE. A notice goes to everyone EXCEPT the device that caused it. If I
- * roll and land on France I watched my own token get there; being told about
- * it is clutter. Whether it is mine is decided by player id through
- * `controlsPlayer`, never by comparing names — two people can be called Sam.
+ * A LINE is news about somebody else — "Priya landed on France". It goes to
+ * everyone EXCEPT the device that caused it: if I moved my own token I watched
+ * it happen, and being told is clutter. Whose it is comes from the player id
+ * through `controlsPlayer`, never from comparing names.
  *
- * TIMING. Each line keeps its own three-second life. A later event never
- * extends or cuts short one already on screen, and nothing is left stacked up
- * once it has been read.
+ * A CARD is money passing between players — rent, Party House, Resort, a card
+ * that collects from everyone. That one goes to EVERYBODY, the payer included,
+ * because handing money over is exactly what you want confirmed: who paid whom,
+ * how much, and what for.
+ *
+ * Either way each keeps its own five seconds and fades in its own time. A later
+ * event never cuts short or extends one already on screen.
  */
-const SHOW_MS = 3000
+const SHOW_MS = 5000
 const FADE_MS = 260
 
 interface Shown {
@@ -25,10 +30,13 @@ interface Shown {
 
 export function NoticeStack({
   notices,
+  state,
   controlsPlayer,
 }: {
   notices: GameNotice[]
-  /** True when THIS device plays that seat — those notices are not shown. */
+  /** For turning player ids into names and colours. */
+  state: GameState
+  /** True when THIS device plays that seat. */
   controlsPlayer: (playerId: string) => boolean
 }) {
   const [shown, setShown] = useState<Shown[]>([])
@@ -59,13 +67,13 @@ export function NoticeStack({
     if (!fresh.length) return
     for (const n of fresh) seen.current.add(n.id)
 
-    const mine = (n: GameNotice) => controlsPlayer(n.playerId)
-    const forMe = fresh.filter((n) => !mine(n))
+    // Money between players is shown to everyone; a line about somebody's move
+    // is not shown to the person who made it.
+    const forMe = fresh.filter((n) => n.transfer?.length || !controlsPlayer(n.playerId))
     if (!forMe.length) return
 
     setShown((current) => [...current, ...forMe.map((notice) => ({ notice, leaving: false }))])
 
-    // One timer per line, so each lives exactly three seconds of its own.
     for (const notice of forMe) {
       const fade = window.setTimeout(() => {
         setShown((current) =>
@@ -86,11 +94,58 @@ export function NoticeStack({
       {shown.map(({ notice, leaving }) => (
         <div
           key={notice.id}
-          className={`notice notice-${notice.tone}${leaving ? ' is-leaving' : ''}`}
+          className={[
+            'notice',
+            `notice-${notice.tone}`,
+            notice.transfer?.length ? 'notice-transfer' : '',
+            leaving ? 'is-leaving' : '',
+          ]
+            .filter(Boolean)
+            .join(' ')}
         >
-          {notice.text}
+          {notice.transfer?.length ? (
+            <Transfer notice={notice} state={state} />
+          ) : (
+            notice.text
+          )}
         </div>
       ))}
     </div>
+  )
+}
+
+/** Who paid whom, how much, and what for. */
+function Transfer({ notice, state }: { notice: GameNotice; state: GameState }) {
+  const name = (id: string) => state.players.find((p) => p.id === id)
+  return (
+    <>
+      <div className="notice-reason">{notice.text}</div>
+      <div className="notice-legs">
+        {notice.transfer!.map((leg, i) => {
+          const from = name(leg.fromId)
+          const to = name(leg.toId)
+          if (!from || !to) return null
+          return (
+            <div className="notice-leg" key={i}>
+              <span className="notice-party">
+                <span className="notice-dot" style={{ background: from.colourHex }} />
+                {from.name}
+              </span>
+              <span className="notice-arrow" aria-hidden="true">
+                →
+              </span>
+              <span className="notice-amount">{money(leg.amount)}</span>
+              <span className="notice-arrow" aria-hidden="true">
+                →
+              </span>
+              <span className="notice-party">
+                <span className="notice-dot" style={{ background: to.colourHex }} />
+                {to.name}
+              </span>
+            </div>
+          )
+        })}
+      </div>
+    </>
   )
 }

@@ -1317,18 +1317,38 @@ console.log('— End game, remove player, transfers, game code —')
   state.players[0].position = 11
   handlePropertyLanding(state, 'p1', 'germany')
   const last = state.notices[state.notices.length - 1]
-  ok('rent is announced in one line', last.text.includes('rent'))
-  ok('naming both players', last.text.includes('P1') || last.text.includes('P2'))
-  ok('and the amount', last.text.includes('400'))
-  check('and it reads as money lost', last.tone, 'bad')
+  ok('rent raises a transfer card', !!last.transfer?.length)
+  check('with one leg', last.transfer!.length, 1)
+  check(
+    'from the payer to the owner',
+    [last.transfer![0].fromId, last.transfer![0].toId],
+    ['p1', 'p2'],
+  )
+  check('for the site rent', last.transfer![0].amount, 400)
+  ok('and it names the property', last.text.includes('Germany'))
+  check('and reads as money lost', last.tone, 'bad')
 }
 {
-  // Party House is one line too, not a card per payer.
+  // Party House is ONE card listing every payer, not a card each.
   const state = makeState(4)
   handlePartyHouse(state, 'p1')
   const last = state.notices[state.notices.length - 1]
-  ok('Party House is announced once', last.text.includes('Party House'))
+  check('one card', state.notices.filter((n) => n.transfer?.length).length, 1)
+  check('three legs, one per payer', last.transfer!.length, 3)
+  ok('all paid to the lander', last.transfer!.every((l) => l.toId === 'p1'))
+  ok('each leg is $200', last.transfer!.every((l) => l.amount === 200))
   check('as money received', last.tone, 'good')
+}
+{
+  // A transfer card is for EVERYONE, the payer included — it is the one thing
+  // you want confirmed even though you did it yourself. A plain line is not.
+  const state = makeState(2)
+  give(state, 'p2', 'germany')
+  state.players[0].position = 11
+  handlePropertyLanding(state, 'p1', 'germany')
+  const transfer = state.notices[state.notices.length - 1]
+  ok('the payer is the one who caused it', transfer.playerId === 'p1')
+  ok('and it still carries the money detail for them', !!transfer.transfer?.length)
 }
 {
   // Bank payments are NOT announced as player-to-player transfers.

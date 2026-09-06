@@ -10,7 +10,7 @@ import { BOARD, JAIL_INDEX, PARTY_HOUSE_INDEX } from '../data/board'
 import { CHANCE_CARDS } from '../data/chanceCards'
 import { COUNTRIES } from '../data/properties'
 import { UNO_CARDS, type EventCard } from '../data/unoCards'
-import { addLog, money, notify, notifyMoney } from './log'
+import { addLog, money, notify, notifyMoney, notifyTransfer } from './log'
 import { moveDirectlyTo } from './movement'
 import { charge, credit, transferMoney } from './payments'
 import {
@@ -146,10 +146,11 @@ export function handlePropertyLanding(
   addLog(state, 'money', `${player.name} paid ${owner.name} ${money(rent.amount)} rent.`)
 
   if (result === 'paid') {
-    notify(
+    notifyTransfer(
       state,
+      [{ fromId: playerId, toId: owner.id, amount: rent.amount }],
+      `Rent — ${name}`,
       playerId,
-      `${player.name} paid ${owner.name} ${money(rent.amount)} rent — ${name}`,
       'bad',
     )
   }
@@ -229,6 +230,8 @@ function applyCard(
   addLog(state, 'event', `${player.name} drew ${deck} ${total}: ${card.title}.`)
 
   let delta: number | undefined
+  // Set when the card moves money BETWEEN players rather than with the Bank.
+  let legs: TransferLeg[] | undefined
 
   switch (card.effect.type) {
     case 'bank': {
@@ -252,12 +255,14 @@ function applyCard(
         `${deck}: ${card.title}`,
       )
       delta = collected.total
+      legs = collected.legs
       break
     }
 
     case 'payEach': {
       const paid = payEachPlayer(state, playerId, card.effect.amount, `${deck}: ${card.title}`)
       delta = -paid.total
+      legs = paid.legs
       break
     }
 
@@ -305,7 +310,11 @@ function applyCard(
     }
   }
 
-  notifyMoney(state, playerId, player.name, delta ?? 0, card.title)
+  if (legs?.length) {
+    notifyTransfer(state, legs, card.title, playerId, (delta ?? 0) >= 0 ? 'good' : 'bad')
+  } else {
+    notifyMoney(state, playerId, player.name, delta ?? 0, card.title)
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -323,8 +332,7 @@ export function handlePartyHouse(state: GameState, playerId: string): void {
     'event',
     `${player.name} landed on Party House and collected ${money(amount)} from each player (${money(total)} total).`,
   )
-  notifyMoney(state, playerId, player.name, total, 'Party House')
-  void legs
+  notifyTransfer(state, legs, `Party House — ${money(amount)} from each player`, playerId, 'good')
 }
 
 /** The lander PAYS the amount to every other active player. */
@@ -338,8 +346,7 @@ export function handleResort(state: GameState, playerId: string): void {
     'event',
     `${player.name} landed on Resort and paid ${money(amount)} to each player (${money(total)} total).`,
   )
-  notifyMoney(state, playerId, player.name, -total, 'Resort')
-  void legs
+  notifyTransfer(state, legs, `Resort — ${money(amount)} to each player`, playerId, 'bad')
 }
 
 interface Collection {

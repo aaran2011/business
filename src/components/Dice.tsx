@@ -158,6 +158,7 @@ export function DiceTray({
   onRoll,
   canRoll = false,
   prompt,
+  turnName,
 }: {
   dice: number[] | null
   rolling: boolean
@@ -171,6 +172,8 @@ export function DiceTray({
   onRoll?: () => void
   canRoll?: boolean
   prompt?: string
+  /** Whose turn it is, spelled out large. Small text loses this at a glance. */
+  turnName?: string
 }) {
   const shown = dice ?? Array.from({ length: count }, () => 1)
   const total = shown.reduce((a, b) => a + b, 0)
@@ -210,6 +213,12 @@ export function DiceTray({
     */
     <div className="dice-roller" style={{ '--turn': colour ?? 'transparent' } as CSSProperties}>
       <span className="dice-tint" aria-hidden="true" />
+      {turnName && (
+        <div className="turn-name">
+          <span className="turn-name-dot" style={{ background: colour }} />
+          <strong>{turnName}</strong>
+        </div>
+      )}
       <button
         type="button"
         className={`dice-hit${canRoll ? ' can-roll' : ''}`}

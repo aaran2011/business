@@ -86,6 +86,8 @@ interface BoardProps {
    * board and the dice step aside, rather than a sheet covering everything.
    */
   centreCard?: ReactNode
+  /** Whose turn it is, shown large above the die. */
+  turnName?: string
 }
 
 export function Board({
@@ -99,6 +101,7 @@ export function Board({
   dieColour,
   centreExtra,
   centreCard,
+  turnName,
 }: BoardProps) {
   const ratio = useTrackRatio()
   const current = state.players.find((p) => p.id === state.turnOrder[state.currentIndex])
@@ -212,6 +215,7 @@ export function Board({
                 onRoll={onRoll}
                 canRoll={canRoll}
                 prompt={rollPrompt}
+                turnName={turnName}
               />
               {centreExtra}
               <div className="centre-status">{centreStatus}</div>

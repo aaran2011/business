@@ -232,6 +232,15 @@ export interface GameNotice {
   playerId: string
   /** Which way the money went, if it moved. Drives the colour and the sound. */
   tone: 'good' | 'bad' | 'neutral'
+  /**
+   * Money that changed hands BETWEEN players, rather than with the Bank.
+   *
+   * When this is set the notice is drawn as a card showing who paid whom, how
+   * much, and what for — and it is shown to EVERYONE, including the player who
+   * caused it. Paying rent is the one thing you always want confirmed, even
+   * though you are the one who did it.
+   */
+  transfer?: TransferLeg[]
 }
 
 export type GameAction =

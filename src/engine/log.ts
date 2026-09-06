@@ -1,4 +1,4 @@
-import type { GameState, LogKind } from './types'
+import type { GameState, LogKind, TransferLeg } from './types'
 
 const MAX_LOG_ENTRIES = 400
 
@@ -30,8 +30,9 @@ export function notify(
   playerId: string,
   text: string,
   tone: 'good' | 'bad' | 'neutral' = 'neutral',
+  transfer?: TransferLeg[],
 ): void {
-  state.notices.push({ id: state.nextNoticeId++, text, playerId, tone })
+  state.notices.push({ id: state.nextNoticeId++, text, playerId, tone, transfer })
   // Only the recent ones are ever shown; the log keeps the full history.
   if (state.notices.length > 8) state.notices.shift()
 }
@@ -61,6 +62,26 @@ export function notifyMoney(
     `${name} ${verb} ${money(Math.abs(delta))} — ${reason}`,
     delta > 0 ? 'good' : 'bad',
   )
+}
+
+/**
+ * Money passing from one player to another.
+ *
+ * Drawn as a card rather than a line, and shown to EVERYONE — the payer most
+ * of all. Paying rent is the one thing you want confirmed even though you are
+ * the one who did it. Payments to and from the Bank do not come through here;
+ * they already have their own line.
+ */
+export function notifyTransfer(
+  state: GameState,
+  legs: TransferLeg[],
+  reason: string,
+  actorId: string,
+  tone: 'good' | 'bad' | 'neutral',
+): void {
+  const real = legs.filter((l) => l.amount > 0 && l.fromId && l.toId)
+  if (!real.length) return
+  notify(state, actorId, reason, tone, real)
 }
 
 export function money(amount: number): string {

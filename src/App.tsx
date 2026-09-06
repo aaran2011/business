@@ -425,7 +425,7 @@ function PlayingView({
       </header>
 
       {/* Short lines about what others have done. Nothing to dismiss. */}
-      <NoticeStack notices={state.notices} controlsPlayer={controlsPlayer} />
+      <NoticeStack notices={state.notices} state={state} controlsPlayer={controlsPlayer} />
 
       {owed > 0 && (
         <div className="debt-banner">
@@ -459,12 +459,15 @@ function PlayingView({
           canRoll={state.stage === 'awaitingRoll' && owed === 0 && !state.paused && canAct}
           rollPrompt={
             !canAct
-              ? `${player.name}'s turn${seatName ? ` — you are ${seatName}` : ''}`
-              : state.stage === 'awaitingRoll' && owed === 0 && !state.paused
-                ? `${player.name} — tap the die to roll`
+              ? seatName
+                ? `You are ${seatName}`
                 : ''
+              : state.stage === 'awaitingRoll' && owed === 0 && !state.paused
+                ? 'Tap the die to roll'
+                : 'Your turn'
           }
           dieColour={player.colourHex}
+          turnName={player.name}
           centreCard={
             /*
               One slot in the middle of the board. Jail first, then whatever
