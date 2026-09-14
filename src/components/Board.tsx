@@ -18,13 +18,6 @@ import { BoardCentre } from './BoardCentre'
 import { BuildingRow } from './BuildingIcons'
 import { DiceTray } from './Dice'
 
-const GROUP_COLOUR: Record<string, string> = {
-  green: 'var(--grp-green)',
-  red: 'var(--grp-red)',
-  blue: 'var(--grp-blue)',
-  gold: 'var(--grp-gold)',
-}
-
 /**
  * Long single-word names cannot fit one line in a board space on a phone.
  * A soft hyphen tells the browser where to break them, so they read as
@@ -58,15 +51,6 @@ function withBreak(name: string): string {
       return at ? `${word.slice(0, at)}${SOFT}${word.slice(at)}` : word
     })
     .join(' ')
-}
-
-/** Bright bar colours for the non-country spaces. */
-const KIND_COLOUR: Record<string, string> = {
-  special: 'linear-gradient(90deg, #00c2c7, #2e86ff)',
-  uno: 'linear-gradient(90deg, #ff9a3d, #ff5f6d)',
-  chance: 'linear-gradient(90deg, #2e86ff, #8f5bff)',
-  customDuty: 'linear-gradient(90deg, #8f5bff, #ff5f9e)',
-  travellingDuty: 'linear-gradient(90deg, #8f5bff, #ff5f9e)',
 }
 
 interface BoardProps {
@@ -157,16 +141,16 @@ export function Board({
               }
               title={space.label}
             >
-              {country && (
-                <span className="cell-bar" style={{ background: GROUP_COLOUR[country.colour] }} />
-              )}
-              {!country && !isCorner && (
-                <span
-                  className="cell-bar"
-                  style={{ background: KIND_COLOUR[space.kind] ?? '#c8d8ea' }}
-                />
-              )}
+              {/*
+                No colour-group stripe, and no kind stripe either.
 
+                Every space is plain, so the ONLY colour anywhere on the board
+                is a player's: the band showing who owns what. Mixing the two
+                made ownership hard to pick out at a glance, which is the thing
+                you actually need to read while playing. The colour group still
+                appears on the property card, where it is a number you are
+                reading rather than a colour you are scanning past.
+              */}
               <span className="cell-body">
                 {country ? (
                   <>

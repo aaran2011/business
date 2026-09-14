@@ -395,14 +395,20 @@ function PlayingView({
     <div className="app">
       {/*
         The header carries what each person is actually allowed to do. The host
-        runs the game, so the host sets the clock, hands out the code and edits
-        the rules; everybody else gets the clock, the rules to read, and the
-        door. Nobody is shown a control that would do nothing.
+        runs the game — the one who handed out the code — so the clock, the code
+        and the rules are the host's; everybody else gets the rules to read and
+        the door. Nobody is shown a control that would do nothing.
+
+        The clock itself, once running, is shown to everyone: it is the game's
+        clock, not the host's. Only SETTING it is restricted, which the engine
+        enforces too — `SET_TIMER` is refused from any device but the host's.
       */}
       <header className="topbar">
-        <button className="btn btn-sm" onClick={() => setShowTimer(true)}>
-          {'\u{23F1}\u{FE0F}'} Timer
-        </button>
+        {isHost && (
+          <button className="btn btn-sm" onClick={() => setShowTimer(true)}>
+            {'\u{23F1}\u{FE0F}'} Timer
+          </button>
+        )}
         {isHost && session.role !== 'solo' && (
           <button className="btn btn-sm" onClick={() => setShowCode(true)}>
             Get Code

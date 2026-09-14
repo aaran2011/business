@@ -301,19 +301,8 @@ button:disabled {
   z-index: 3;
 }
 
-.cell-bar {
-  height: 2.4cqi;
-  flex: none;
-  border-bottom: 1px solid rgba(0, 0, 0, 0.08);
-}
-
 .cell.edge-bottom {
   flex-direction: column-reverse;
-}
-
-.cell.edge-bottom .cell-bar {
-  border-bottom: none;
-  border-top: 1px solid rgba(0, 0, 0, 0.08);
 }
 
 .cell-body {
@@ -3035,10 +3024,6 @@ button:disabled {
   .cell-body {
     gap: 0.5cqi;
     padding: 1cqi 0.8cqi max(18px, 4.6cqi);
-  }
-
-  .cell-bar {
-    height: 2.8cqi;
   }
 
   /* The middle: only as large as it needs to be, and softly inset. */
