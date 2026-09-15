@@ -12,14 +12,14 @@
 
 /** One letter per colour, warm on the left running to cool on the right. */
 const WORDMARK: [string, string][] = [
-  ['B', '#ff7a6b'],
-  ['U', '#ff9f52'],
-  ['S', '#f5c04a'],
-  ['I', '#69bd8f'],
-  ['N', '#57a6ab'],
-  ['E', '#7aa9ee'],
-  ['S', '#5588e8'],
-  ['S', '#948cf0'],
+  ['B', '#ff8f8f'],
+  ['U', '#ffb27a'],
+  ['S', '#ffd16a'],
+  ['I', '#8dd5a6'],
+  ['N', '#71c8c7'],
+  ['E', '#8abaf5'],
+  ['S', '#719bef'],
+  ['S', '#9a91f3'],
 ]
 
 export function BoardCentre() {
@@ -86,7 +86,7 @@ const DOTS: [number, number, number][] = (() => {
         // A soft elliptical edge, so the blobs read as land rather than boxes.
         const dx = (x - (bx + bw / 2)) / (bw / 2)
         const dy = (y - (by + bh / 2)) / (bh / 2)
-        if (dx * dx + dy * dy <= 1) out.push([x, y, 2.1])
+        if (dx * dx + dy * dy <= 1) out.push([x, y, 1.7])
       }
     }
   }

@@ -49,6 +49,28 @@ const BREAK_POINTS: Record<string, number> = {
   Custom: 4,
   India: 3,
   Italy: 3,
+  // The long labels down the two short edges, which share their line with a
+  // flag on a 62px-wide phone space.
+  Travelling: 6,
+  England: 3,
+  Kong: 2,
+}
+
+/**
+ * The six tile families, taken in turn around the ring.
+ *
+ * Position, deliberately — NOT the colour group. Colour that encodes a group
+ * competes with the owner's band for the one thing you actually scan for,
+ * which is who owns what; that was taken off the board on purpose. This is
+ * rhythm only: six families over 36 spaces means no two neighbours ever share
+ * a background, and the same space wears the same colour every game.
+ */
+const TILE_TONES = ['blue', 'green', 'pink', 'peach', 'purple', 'yellow'] as const
+
+function toneFor(space: { kind: string; index: number }): string | null {
+  // The decks, the duties and the four corners are pinned by kind instead.
+  if (space.kind !== 'country' && space.kind !== 'special') return null
+  return `tone-${TILE_TONES[space.index % TILE_TONES.length]}`
 }
 
 function withBreak(name: string): string {
@@ -135,6 +157,7 @@ export function Board({
                 // Purely cosmetic: it is how the stylesheet tells a Chance
                 // space from a country. Nothing reads it to decide a rule.
                 `kind-${space.kind}`,
+                toneFor(space) ?? '',
                 isCorner ? 'is-corner' : '',
                 activeIndex === space.index ? 'is-active' : '',
               ]

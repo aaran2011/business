@@ -1,4 +1,4 @@
-import { useRef, type CSSProperties } from 'react'
+import { useRef } from 'react'
 
 /**
  * Physical-feeling dice.
@@ -206,12 +206,11 @@ export function DiceTray({
 
   return (
     /*
-      The active player's colour goes on `.dice-tint`, an element of its own
-      behind the die. Never on a parent: a parent here is the middle of the
-      board, and tinting that washes the whole inside of the board in one
-      player's colour.
+      The panel is blue and stays blue. Whose turn it is shows in the dot
+      beside the name and in the pips on the die — colouring the panel itself
+      turned the middle of the board into one player's slab.
     */
-    <div className="dice-roller" style={{ '--turn': colour ?? 'transparent' } as CSSProperties}>
+    <div className="dice-roller">
       <span className="dice-tint" aria-hidden="true" />
       {turnName && (
         <div className="turn-name">

@@ -28,29 +28,53 @@
   --info: #3d7dff;
   --info-soft: #e8f0ff;
 
-  --board: #ffffff;
-  --board-line: #dce9f7;
+  /* ------------------------------------------------ board design tokens --
+
+     One place for every colour the board uses. Nothing in the board rules
+     below should carry a literal hex: change a value here and the whole
+     board follows.                                                        */
+
+  --board-bg: #ffffff;
+  --board: var(--board-bg);
+  --board-border: #dce9f7;
+  --board-line: var(--board-border);
   --board-cell: #fbfdff;
   --board-cell-line: #e4eefa;
-  --board-corner: #fff8ec;
   --board-ink: #12213d;
-  --board-price: #8298b8;
+  --text-primary: #12213d;
+  --text-secondary: #8298b8;
+  --board-price: var(--text-secondary);
+  --status-ink: #536b91;
+  --active-orange: #ff7a21;
 
-  /* The pastel family the board is built from. Every one of these is a
-     BACKGROUND: they are pale on purpose, so an owner's colour stays the
-     loudest thing on any space it sits on. */
-  --pale-blue: #eef6ff;
-  --pale-blue-line: #d6e8ff;
-  --pale-mint: #edfaf2;
-  --pale-mint-line: #c9eedb;
-  --pale-pink: #fff0f3;
-  --pale-pink-line: #ffd6de;
-  --pale-peach: #fff6ec;
-  --pale-peach-line: #ffe0c2;
-  --pale-yellow: #fffbef;
-  --pale-yellow-line: #ffedc4;
-  --pale-lavender: #f4f0ff;
-  --pale-lavender-line: #e2d9ff;
+  /* The six tile families. A space takes one of them by position, which is
+     what gives the ring its rhythm — no two neighbours are ever the same.
+     They are extremely pale on purpose: an owner's band sits ON one of
+     these, and must stay the loudest thing on the space. */
+  --tile-blue-bg: #f2f8ff;
+  --tile-blue-border: #d5e8fb;
+  --tile-green-bg: #f1fbf6;
+  --tile-green-border: #ceeedf;
+  --tile-pink-bg: #fff3f5;
+  --tile-pink-border: #f5d7de;
+  --tile-peach-bg: #fff7ee;
+  --tile-peach-border: #f4dec5;
+  --tile-purple-bg: #f6f2ff;
+  --tile-purple-border: #ded4f8;
+  --tile-yellow-bg: #fff9e9;
+  --tile-yellow-border: #f2e3b7;
+
+  /* The four corners. One design, four hues — see .cell.is-corner. */
+  --party-bg: #fff0f3;
+  --party-border: #f5c9d4;
+  --resort-bg: #fff7ea;
+  --resort-border: #f4d7aa;
+  --jail-bg: #f1f6ff;
+  --jail-border: #c9dcf6;
+  --start-bg: #eefaf6;
+  --start-border: #b9e7d4;
+
+  --player-panel-bg: linear-gradient(145deg, #c6e2fa 0%, #afcfeb 100%);
 
   --grp-green: #17b978;
   --grp-red: #ff4757;
@@ -392,126 +416,172 @@ button:disabled {
 }
 
 /*
- * Colour on a space, and the one rule that governs it.
+ * Colour on a space.
  *
- * A space you can BUY stays plain — countries and the six transport assets
- * all share one pale background. That is deliberate and it is not an
- * oversight: the owner's band is the only colour allowed to appear on a
- * space that can be owned, so "who owns this" is readable across a table.
- * Tinting those by group is exactly what was taken out on 2026-09-15.
+ * Every space takes one of the six tile families, chosen by its POSITION on
+ * the ring (see toneFor in Board.tsx), so no two neighbours share a
+ * background and the ring reads as a rhythm rather than a wall of white.
+ * The two decks and the two duties are pinned to a family of their own so
+ * they stay recognisable wherever they fall.
  *
- * A space you can NEVER own has no band to compete with, so those carry the
- * pastel: the two decks, the two duties, and the four corners.
+ * They are all extremely pale for one reason: an owner's band sits on top of
+ * them and has to stay the loudest thing on the space.
  */
+.cell.tone-blue {
+  background: var(--tile-blue-bg);
+  border-color: var(--tile-blue-border);
+}
+
+.cell.tone-green {
+  background: var(--tile-green-bg);
+  border-color: var(--tile-green-border);
+}
+
+.cell.tone-pink {
+  background: var(--tile-pink-bg);
+  border-color: var(--tile-pink-border);
+}
+
+.cell.tone-peach {
+  background: var(--tile-peach-bg);
+  border-color: var(--tile-peach-border);
+}
+
+.cell.tone-purple {
+  background: var(--tile-purple-bg);
+  border-color: var(--tile-purple-border);
+}
+
+.cell.tone-yellow {
+  background: var(--tile-yellow-bg);
+  border-color: var(--tile-yellow-border);
+}
+
 .cell.kind-chance {
-  background: var(--pale-pink);
-  border-color: var(--pale-pink-line);
+  background: var(--tile-pink-bg);
+  border-color: var(--tile-pink-border);
 }
 
 .cell.kind-uno {
-  background: var(--pale-yellow);
-  border-color: var(--pale-yellow-line);
+  background: var(--tile-yellow-bg);
+  border-color: var(--tile-yellow-border);
 }
 
 .cell.kind-customDuty {
-  background: var(--pale-lavender);
-  border-color: var(--pale-lavender-line);
+  background: var(--tile-purple-bg);
+  border-color: var(--tile-purple-border);
 }
 
 .cell.kind-travellingDuty {
-  background: var(--pale-blue);
-  border-color: var(--pale-blue-line);
-}
-
-.cell.kind-partyHouse {
-  background: var(--pale-pink);
-  border-color: var(--pale-pink-line);
-}
-
-.cell.kind-resort {
-  background: var(--pale-peach);
-  border-color: var(--pale-peach-line);
-}
-
-.cell.kind-jail {
-  background: var(--pale-blue);
-  border-color: var(--pale-blue-line);
-}
-
-.cell.kind-start {
-  background: var(--pale-mint);
-  border-color: var(--pale-mint-line);
+  background: var(--tile-blue-bg);
+  border-color: var(--tile-blue-border);
 }
 
 /*
- * The four corners share one treatment: same border, same radius, same
- * pattern weight, same amount of clear space. Only the hue differs. They used
- * to read as four unrelated illustrations, which is the thing to avoid.
+ * ---------------------------------------------------------- the corners --
+ *
+ * Party House, Resort, Jail and START are ONE component wearing four hues.
+ * Everything that makes a design read as a system is set once, here: the
+ * border, the radius, the shadow, the icon scale, the title, and the pattern
+ * — five small accents and two soft washes, at the same sizes, in the same
+ * places, at the same opacity on all four. Each corner supplies only colours.
+ *
+ * Nothing here may grow into a scene. No prison, no beach, no racetrack, no
+ * party: the icon and the name are the subject, the pattern is atmosphere.
+ * The full-tile jail bars and the START diagonals that used to be here were
+ * exactly that mistake — one corner shouting while the other three whispered.
  */
 .cell.is-corner {
   border-width: max(1.5px, 0.2cqi);
+  box-shadow: 0 2px 6px rgba(55, 93, 145, 0.05);
 }
 
-/* The pattern layer. Always behind the text, always faint. */
 .cell.is-corner::before {
   content: '';
   position: absolute;
   inset: 0;
   pointer-events: none;
   z-index: 0;
-}
-
-/*
- * Every corner pattern is pushed out to the edges by the same mask, so the
- * middle of the tile — where the icon and the name are — stays clean and all
- * four read at the same density. Without it a striped corner becomes a
- * prison-cell scene or a racetrack, which is the thing to avoid.
- */
-.cell.is-corner::before {
-  -webkit-mask-image: radial-gradient(circle at 50% 46%, transparent 0 40%, #000 76%);
-  mask-image: radial-gradient(circle at 50% 46%, transparent 0 40%, #000 76%);
-}
-
-/* Party House: a few pieces of confetti, out near the edges. */
-.cell.kind-partyHouse::before {
   background-image:
-    radial-gradient(circle, #ff8fa3 50%, transparent 52%),
-    radial-gradient(circle, #ffc14d 50%, transparent 52%),
-    radial-gradient(circle, #6fc9f5 50%, transparent 52%),
-    radial-gradient(circle, #8ee0b0 50%, transparent 52%),
-    radial-gradient(circle, #c3a9f7 50%, transparent 52%);
-  background-size: 0.85cqi 0.85cqi;
+    radial-gradient(circle, var(--corner-a) 50%, transparent 52%),
+    radial-gradient(circle, var(--corner-b) 50%, transparent 52%),
+    radial-gradient(circle, var(--corner-c) 50%, transparent 52%),
+    radial-gradient(circle, var(--corner-d) 50%, transparent 52%),
+    radial-gradient(circle, var(--corner-e) 50%, transparent 52%),
+    radial-gradient(circle 3.2cqi at 84% 17%, var(--corner-wash) 0%, transparent 74%),
+    radial-gradient(135% 44% at 50% 124%, var(--corner-ground) 0%, transparent 72%);
+  background-size:
+    0.95cqi 0.95cqi,
+    0.7cqi 0.7cqi,
+    1.15cqi 1.15cqi,
+    0.8cqi 0.8cqi,
+    0.62cqi 0.62cqi,
+    auto,
+    auto;
   background-repeat: no-repeat;
-  background-position: 14% 17%, 84% 13%, 89% 79%, 12% 83%, 27% 90%;
+  background-position:
+    14% 22%,
+    31% 12%,
+    87% 74%,
+    11% 80%,
+    68% 89%,
+    0 0,
+    0 0;
   opacity: 0.5;
 }
 
-/* Resort: a low sun and the warmth off the sand. No beach scene. */
-.cell.kind-resort::before {
-  background-image:
-    radial-gradient(circle at 85% 15%, #ffcf9e 0 1.5cqi, transparent 1.6cqi),
-    radial-gradient(120% 55% at 50% 126%, #ffdfbe 0 58%, transparent 60%);
-  opacity: 0.5;
+/* Party House: the five accents are confetti, so they are the only ones
+   that take more than one colour. */
+.cell.kind-partyHouse {
+  background: var(--party-bg);
+  border-color: var(--party-border);
+  --corner-a: #ff9bad;
+  --corner-b: #ffc96b;
+  --corner-c: #8fd0f5;
+  --corner-d: #9be0bb;
+  --corner-e: #c6aef7;
+  --corner-wash: #ffd9e1;
+  --corner-ground: #ffe4ea;
 }
 
-/* Jail: a hint of bars around the edge. */
-.cell.kind-jail::before {
-  background-image: repeating-linear-gradient(
-    90deg,
-    #accff7 0 0.42cqi,
-    transparent 0.42cqi 2.5cqi
-  );
-  opacity: 0.32;
+/* Resort: a pale sun in the corner, warm sand along the foot. */
+.cell.kind-resort {
+  background: var(--resort-bg);
+  border-color: var(--resort-border);
+  --corner-a: #f6d6a8;
+  --corner-b: #f8e3c2;
+  --corner-c: #f3cf9c;
+  --corner-d: #f8e0bb;
+  --corner-e: #f5d7ab;
+  --corner-wash: #ffd9a6;
+  --corner-ground: #fbe3c4;
 }
 
-/* START: diagonal accents, nothing that could be read as a road. */
-.cell.kind-start::before {
-  background-image: repeating-linear-gradient(
-    -45deg,
-    #a9e2c6 0 0.5cqi,
-    transparent 0.5cqi 3.2cqi
-  );
-  opacity: 0.42;
+/* Jail: geometric blue flecks. The bars are the ICON, drawn once in the
+   middle — never a stripe across the tile. */
+.cell.kind-jail {
+  background: var(--jail-bg);
+  border-color: var(--jail-border);
+  --corner-a: #b9d2f2;
+  --corner-b: #cfe0f8;
+  --corner-c: #adc9ef;
+  --corner-d: #c8dcf7;
+  --corner-e: #bad3f3;
+  --corner-wash: #cfe2fb;
+  --corner-ground: #dbe9fb;
+}
+
+/* START: mint flecks. No road, no track, no diagonals. */
+.cell.kind-start {
+  background: var(--start-bg);
+  border-color: var(--start-border);
+  --corner-a: #a9dfc6;
+  --corner-b: #c6ebd8;
+  --corner-c: #9ed9be;
+  --corner-d: #bee7d3;
+  --corner-e: #aee1c9;
+  --corner-wash: #c3ecd9;
+  --corner-ground: #d6f1e5;
 }
 
 .cell.is-active {
@@ -529,14 +599,17 @@ button:disabled {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 0.25cqi;
+  /* Icon, then name, then price — each with room to breathe. */
+  gap: max(2px, 0.5cqi);
   /* The bottom padding is the token strip: pawns sit there, text never does. */
   padding: 0.4cqi 0.3cqi max(15px, 4cqi);
   min-height: 0;
 }
 
 .cell-name {
-  font-weight: 800;
+  /* 700, not 800. Everything on this board was set at the heaviest weight
+     going, which reads as shouting rather than as hierarchy. */
+  font-weight: 700;
   /*
    * cqi alone gets tiny on a 360px-wide board — 1.6cqi is under 6px. The
    * floor is what keeps a country name readable on a phone; the cqi part is
@@ -558,7 +631,7 @@ button:disabled {
   font-size: max(10.5px, 1.46cqi);
   color: var(--board-price);
   font-variant-numeric: tabular-nums;
-  font-weight: 700;
+  font-weight: 600;
 }
 
 /*
@@ -573,16 +646,16 @@ button:disabled {
 @media (min-width: 821px) {
   .cell.edge-top:not(.is-corner) .cell-name,
   .cell.edge-bottom:not(.is-corner) .cell-name {
-    font-size: max(10.5px, 1.46cqi);
-    letter-spacing: -0.045em;
+    font-size: max(10px, 1.46cqi);
+    letter-spacing: -0.055em;
   }
 
   /* Side padding is the cheapest width there is on these two edges: half of
      it buys another two and a half characters and costs nothing to read. */
   .cell.edge-top:not(.is-corner) .cell-body,
   .cell.edge-bottom:not(.is-corner) .cell-body {
-    padding-left: 0.15cqi;
-    padding-right: 0.15cqi;
+    padding-left: 0.1cqi;
+    padding-right: 0.1cqi;
   }
 
   /*
@@ -602,7 +675,7 @@ button:disabled {
 
 /* Decoration is capped: it should label the space, not fill it. */
 .cell-icon {
-  font-size: min(3.2cqi, 20px);
+  font-size: min(3.6cqi, 24px);
   line-height: 1;
   display: flex;
   align-items: center;
@@ -629,7 +702,7 @@ button:disabled {
 }
 
 .cell.is-corner .cell-icon {
-  font-size: min(3.9cqi, 26px);
+  font-size: min(5cqi, 34px);
 }
 
 .cell.is-corner .cell-name {
@@ -644,7 +717,7 @@ button:disabled {
 }
 
 .cell-flag {
-  font-size: min(2.7cqi, 18px);
+  font-size: min(3cqi, 20px);
   line-height: 1;
 }
 
@@ -734,7 +807,12 @@ button:disabled {
   gap: 1.6cqi;
   /* Almost white. Whatever pattern is here is drawn, not painted in, so it
      can be kept under a tenth of an opacity — see .centre-pattern. */
-  background: linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 1) 0%,
+    rgba(248, 252, 255, 1) 55%,
+    rgba(231, 243, 255, 0.65) 100%
+  );
   border: max(1px, 0.14cqi) solid var(--board-cell-line);
   border-radius: max(12px, 2cqi);
   /* Inset from the playing track so the board reads as a clear ring. */
@@ -761,7 +839,10 @@ button:disabled {
 }
 
 .centre-dots {
-  opacity: 0.06;
+  /* Atmosphere, not decoration: at this weight the world should not be
+     visible until you go looking for it. It was a plainly legible dot grid
+     sitting behind the wordmark before. */
+  opacity: 0.045;
 }
 
 .centre-dots circle {
@@ -769,7 +850,7 @@ button:disabled {
 }
 
 .centre-skyline {
-  opacity: 0.04;
+  opacity: 0.07;
 }
 
 .centre-skyline path {
@@ -779,7 +860,7 @@ button:disabled {
 .centre-status {
   min-height: 2cqi;
   font-size: 1.9cqi;
-  color: var(--text-dim);
+  color: var(--status-ink);
   text-align: center;
   max-width: 90%;
   font-weight: 700;
@@ -808,15 +889,17 @@ button:disabled {
 .pawn {
   position: absolute;
   transform: translate(-50%, -50%);
-  width: max(17px, 4.4cqi);
-  height: max(17px, 4.4cqi);
+  /* Smaller and lighter than they were: a marker of where somebody is, not
+     a feature of the space they happen to be standing on. */
+  width: max(13px, 3.1cqi);
+  height: max(13px, 3.1cqi);
   border-radius: 50%;
-  border: max(1.5px, 0.35cqi) solid #fff;
-  box-shadow: 0 2px 7px rgba(20, 40, 80, 0.45);
+  border: max(1.4px, 0.28cqi) solid #fff;
+  box-shadow: 0 2px 6px rgba(20, 40, 80, 0.3);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: max(9.5px, 2.4cqi);
+  font-size: max(8.5px, 2cqi);
   font-weight: 900;
   color: #fff;
   letter-spacing: 0;
@@ -2088,11 +2171,12 @@ button:disabled {
 }
 
 /* The dice themselves are the roll button. */
+/* A lighter card inside the panel: the dice themselves are the roll button. */
 .dice-hit {
   border: none;
-  background: transparent;
-  padding: 1.4cqi 2.4cqi;
-  border-radius: 3cqi;
+  background: rgba(255, 255, 255, 0.5);
+  padding: 1.6cqi 2.6cqi;
+  border-radius: max(16px, 2.6cqi);
   transition: transform 0.16s ease, box-shadow 0.16s ease, background 0.16s ease;
 }
 
@@ -2103,7 +2187,7 @@ button:disabled {
 
 .dice-hit.can-roll {
   cursor: pointer;
-  background: rgba(255, 122, 26, 0.07);
+  background: rgba(255, 255, 255, 0.78);
   box-shadow: 0 0 0 0.25cqi rgba(255, 122, 26, 0.28);
   animation: dice-invite 2.4s ease-in-out infinite;
 }
@@ -2635,7 +2719,7 @@ button:disabled {
 .centre-wordmark {
   display: flex;
   font-size: 4.4cqi;
-  font-weight: 900;
+  font-weight: 800;
   letter-spacing: 0.34em;
   text-indent: 0.34em;
   opacity: 0.88;
@@ -3120,6 +3204,10 @@ button:disabled {
     height: var(--cell-w);
     padding: 0.4cqi 0.8cqi 0.4cqi max(11px, 3cqi);
     justify-content: center;
+    /* The turned spaces have about 30px across them for the whole stack, so
+       they keep the tight gap — the roomier one everywhere else pushes the
+       icon and the price out over the edges here. */
+    gap: max(1px, 0.2cqi);
   }
 
   .cell.edge-top:not(.is-corner) .cell-body {
@@ -3335,23 +3423,33 @@ button:disabled {
    inside of the board in the player's colour. That is what this element is
    here to prevent.                                                          */
 
+/*
+ * The player panel.
+ *
+ * It is BLUE, and it stays blue whoever is playing.
+ *
+ * It used to be washed with the active player's own colour at 35%, which on
+ * a red player turned the whole middle of the board into a large salmon
+ * slab. Whose turn it is belongs to the things that can carry a colour
+ * without repainting the furniture: the dot beside the name, and the pips on
+ * the die. Both are still dynamic.
+ */
 .dice-roller {
   position: relative;
-  border-radius: 18px;
-  padding: 1.2cqi 2cqi;
+  border-radius: max(24px, 3.4cqi);
+  padding: 2.4cqi 2.8cqi 2cqi;
   isolation: isolate;
+  box-shadow: 0 8px 20px rgba(77, 126, 176, 0.08);
 }
 
-/* The tint itself: translucent, so the die's own design stays legible. */
+/* The panel's own surface, behind everything else in it. */
 .dice-tint {
   position: absolute;
   inset: 0;
   border-radius: inherit;
-  background: var(--turn, transparent);
-  opacity: 0.35;
+  background: var(--player-panel-bg);
   pointer-events: none;
   z-index: 0;
-  transition: background 0.3s ease, opacity 0.3s ease;
 }
 
 .dice-roller > *:not(.dice-tint) {
@@ -3610,6 +3708,21 @@ button:disabled {
 .cell.edge-left:not(.is-corner) .cell-icon,
 .cell.edge-right:not(.is-corner) .cell-icon {
   font-size: min(2cqi, 13px);
+}
+
+/*
+ * A bigger flag on these two edges, but only where there is width for it.
+ * On a phone a left or right space is about 62px across and the flag shares
+ * that line with the name; every pixel the flag takes comes straight out of
+ * "Travelling Duty".
+ */
+@media (min-width: 821px) {
+  .cell.edge-left:not(.is-corner) .cell-flag,
+  .cell.edge-right:not(.is-corner) .cell-flag,
+  .cell.edge-left:not(.is-corner) .cell-icon,
+  .cell.edge-right:not(.is-corner) .cell-icon {
+    font-size: min(2.7cqi, 17px);
+  }
 }
 
 .cell.edge-left:not(.is-corner) .cell-name,
