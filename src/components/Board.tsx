@@ -17,6 +17,7 @@ import type { GameState } from '../engine/types'
 import { BoardCentre } from './BoardCentre'
 import { BuildingRow } from './BuildingIcons'
 import { DiceTray } from './Dice'
+import { hasSpaceIcon, SpaceIcon } from './SpaceIcon'
 
 /**
  * Long single-word names cannot fit one line in a board space on a phone.
@@ -39,6 +40,15 @@ const BREAK_POINTS: Record<string, number> = {
   Airways: 3,
   Railways: 4,
   Arabia: 3,
+  // Short names that still lose by a pixel or two in a top or bottom space on
+  // a small screen. They fit on one line at any usable size above that, and a
+  // soft hyphen costs nothing when the word does fit.
+  Brazil: 3,
+  China: 3,
+  Chance: 4,
+  Custom: 4,
+  India: 3,
+  Italy: 3,
 }
 
 function withBreak(name: string): string {
@@ -122,6 +132,9 @@ export function Board({
               className={[
                 'cell',
                 `edge-${edge}`,
+                // Purely cosmetic: it is how the stylesheet tells a Chance
+                // space from a country. Nothing reads it to decide a rule.
+                `kind-${space.kind}`,
                 isCorner ? 'is-corner' : '',
                 activeIndex === space.index ? 'is-active' : '',
               ]
@@ -160,14 +173,18 @@ export function Board({
                   </>
                 ) : asset ? (
                   <>
-                    <span className="cell-icon">{asset.icon}</span>
+                    <span className="cell-icon">
+                      {hasSpaceIcon(asset.id) ? <SpaceIcon name={asset.id} /> : asset.icon}
+                    </span>
                     <span className="cell-name">{withBreak(asset.name)}</span>
                     <span className="cell-price">{money(asset.price)}</span>
                   </>
                 ) : (
                   <>
-                    <span className="cell-icon">{space.icon}</span>
-                    <span className="cell-name">{space.label}</span>
+                    <span className="cell-icon">
+                      {hasSpaceIcon(space.kind) ? <SpaceIcon name={space.kind} /> : space.icon}
+                    </span>
+                    <span className="cell-name">{withBreak(space.label)}</span>
                   </>
                 )}
               </span>

@@ -6,6 +6,7 @@ import { Board } from './components/Board'
 import { BuildOffer } from './components/BuildOffer'
 import { BuildWarning } from './components/BuildWarning'
 import { JailDice } from './components/Dice'
+import { SpaceIcon } from './components/SpaceIcon'
 import { NoticeStack } from './components/NoticeStack'
 import { HouseRulesModal } from './components/HouseRulesModal'
 import { Leaderboard } from './components/Leaderboard'
@@ -524,7 +525,11 @@ function PlayingView({
             state.stage === 'inJail' && !state.paused ? (
               <div className="centre-card jail-card">
                 <div className="centre-card-head">
-                  <span>{'\u{1F46E}'} Jail</span>
+                  {/* The drawn bars, not the police-officer emoji: there is
+                      no person anywhere in the board's artwork. */}
+                  <span className="centre-card-icon">
+                    <SpaceIcon name="jail" /> Jail
+                  </span>
                 </div>
                 <div className="centre-card-body">
                   <div className="jail-who">

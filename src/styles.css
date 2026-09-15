@@ -29,10 +29,28 @@
   --info-soft: #e8f0ff;
 
   --board: #ffffff;
-  --board-line: #d7e2f0;
-  --board-cell: #fdfeff;
+  --board-line: #dce9f7;
+  --board-cell: #fbfdff;
+  --board-cell-line: #e4eefa;
   --board-corner: #fff8ec;
-  --board-ink: #16233a;
+  --board-ink: #12213d;
+  --board-price: #8298b8;
+
+  /* The pastel family the board is built from. Every one of these is a
+     BACKGROUND: they are pale on purpose, so an owner's colour stays the
+     loudest thing on any space it sits on. */
+  --pale-blue: #eef6ff;
+  --pale-blue-line: #d6e8ff;
+  --pale-mint: #edfaf2;
+  --pale-mint-line: #c9eedb;
+  --pale-pink: #fff0f3;
+  --pale-pink-line: #ffd6de;
+  --pale-peach: #fff6ec;
+  --pale-peach-line: #ffe0c2;
+  --pale-yellow: #fffbef;
+  --pale-yellow-line: #ffedc4;
+  --pale-lavender: #f4f0ff;
+  --pale-lavender-line: #e2d9ff;
 
   --grp-green: #17b978;
   --grp-red: #ff4757;
@@ -326,8 +344,10 @@ button:disabled {
   padding: 1.1cqi;
   background: var(--board);
   border: 2px solid var(--board-line);
-  border-radius: 20px;
-  box-shadow: var(--shadow);
+  /* Large and soft. The radius and the shadow are the whole of the board's
+     "card" treatment — no heavy floating panel. */
+  border-radius: 34px;
+  box-shadow: 0 12px 35px rgba(55, 93, 145, 0.08);
 }
 
 @media (max-width: 1080px) {
@@ -348,7 +368,7 @@ button:disabled {
     aspect-ratio: 0.675;
     max-width: 100%;
     padding: 0.8cqi;
-    border-radius: 14px;
+    border-radius: 22px;
     /* `size`, not `inline-size`, so cqb (a share of the board's HEIGHT) works
        — the rotated spaces on the narrow edges are sized from it. */
     container-type: size;
@@ -358,8 +378,10 @@ button:disabled {
 .cell {
   position: relative;
   background: var(--board-cell);
-  border: 1px solid var(--line);
-  border-radius: 4px;
+  border: max(1px, 0.16cqi) solid var(--board-cell-line);
+  /* Rounded, but scaled from the board: a fixed 12px on a 30px-wide space
+     would swallow the space itself. */
+  border-radius: max(5px, 1.1cqi);
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -369,9 +391,127 @@ button:disabled {
   transition: box-shadow 0.15s ease, transform 0.15s ease;
 }
 
+/*
+ * Colour on a space, and the one rule that governs it.
+ *
+ * A space you can BUY stays plain — countries and the six transport assets
+ * all share one pale background. That is deliberate and it is not an
+ * oversight: the owner's band is the only colour allowed to appear on a
+ * space that can be owned, so "who owns this" is readable across a table.
+ * Tinting those by group is exactly what was taken out on 2026-09-15.
+ *
+ * A space you can NEVER own has no band to compete with, so those carry the
+ * pastel: the two decks, the two duties, and the four corners.
+ */
+.cell.kind-chance {
+  background: var(--pale-pink);
+  border-color: var(--pale-pink-line);
+}
+
+.cell.kind-uno {
+  background: var(--pale-yellow);
+  border-color: var(--pale-yellow-line);
+}
+
+.cell.kind-customDuty {
+  background: var(--pale-lavender);
+  border-color: var(--pale-lavender-line);
+}
+
+.cell.kind-travellingDuty {
+  background: var(--pale-blue);
+  border-color: var(--pale-blue-line);
+}
+
+.cell.kind-partyHouse {
+  background: var(--pale-pink);
+  border-color: var(--pale-pink-line);
+}
+
+.cell.kind-resort {
+  background: var(--pale-peach);
+  border-color: var(--pale-peach-line);
+}
+
+.cell.kind-jail {
+  background: var(--pale-blue);
+  border-color: var(--pale-blue-line);
+}
+
+.cell.kind-start {
+  background: var(--pale-mint);
+  border-color: var(--pale-mint-line);
+}
+
+/*
+ * The four corners share one treatment: same border, same radius, same
+ * pattern weight, same amount of clear space. Only the hue differs. They used
+ * to read as four unrelated illustrations, which is the thing to avoid.
+ */
 .cell.is-corner {
-  background: var(--board-corner);
-  border-color: #ffddb5;
+  border-width: max(1.5px, 0.2cqi);
+}
+
+/* The pattern layer. Always behind the text, always faint. */
+.cell.is-corner::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+
+/*
+ * Every corner pattern is pushed out to the edges by the same mask, so the
+ * middle of the tile — where the icon and the name are — stays clean and all
+ * four read at the same density. Without it a striped corner becomes a
+ * prison-cell scene or a racetrack, which is the thing to avoid.
+ */
+.cell.is-corner::before {
+  -webkit-mask-image: radial-gradient(circle at 50% 46%, transparent 0 40%, #000 76%);
+  mask-image: radial-gradient(circle at 50% 46%, transparent 0 40%, #000 76%);
+}
+
+/* Party House: a few pieces of confetti, out near the edges. */
+.cell.kind-partyHouse::before {
+  background-image:
+    radial-gradient(circle, #ff8fa3 50%, transparent 52%),
+    radial-gradient(circle, #ffc14d 50%, transparent 52%),
+    radial-gradient(circle, #6fc9f5 50%, transparent 52%),
+    radial-gradient(circle, #8ee0b0 50%, transparent 52%),
+    radial-gradient(circle, #c3a9f7 50%, transparent 52%);
+  background-size: 0.85cqi 0.85cqi;
+  background-repeat: no-repeat;
+  background-position: 14% 17%, 84% 13%, 89% 79%, 12% 83%, 27% 90%;
+  opacity: 0.5;
+}
+
+/* Resort: a low sun and the warmth off the sand. No beach scene. */
+.cell.kind-resort::before {
+  background-image:
+    radial-gradient(circle at 85% 15%, #ffcf9e 0 1.5cqi, transparent 1.6cqi),
+    radial-gradient(120% 55% at 50% 126%, #ffdfbe 0 58%, transparent 60%);
+  opacity: 0.5;
+}
+
+/* Jail: a hint of bars around the edge. */
+.cell.kind-jail::before {
+  background-image: repeating-linear-gradient(
+    90deg,
+    #accff7 0 0.42cqi,
+    transparent 0.42cqi 2.5cqi
+  );
+  opacity: 0.32;
+}
+
+/* START: diagonal accents, nothing that could be read as a road. */
+.cell.kind-start::before {
+  background-image: repeating-linear-gradient(
+    -45deg,
+    #a9e2c6 0 0.5cqi,
+    transparent 0.5cqi 3.2cqi
+  );
+  opacity: 0.42;
 }
 
 .cell.is-active {
@@ -416,15 +556,76 @@ button:disabled {
 
 .cell-price {
   font-size: max(10.5px, 1.46cqi);
-  color: var(--text-faint);
+  color: var(--board-price);
   font-variant-numeric: tabular-nums;
   font-weight: 700;
+}
+
+/*
+ * The narrow edges on a WIDE screen.
+ *
+ * Ten spaces share the board's width, so a top or bottom space is about 48px
+ * of usable width on a large board. At the full name size "Chance" is 50px
+ * and breaks across two lines mid-word; one step down it holds its line, and
+ * so do Brazil, China, Italy and India. The long ones — Switzerland, Custom
+ * Duty, Saudi Arabia — still wrap, which is what they are meant to do.
+ */
+@media (min-width: 821px) {
+  .cell.edge-top:not(.is-corner) .cell-name,
+  .cell.edge-bottom:not(.is-corner) .cell-name {
+    font-size: max(10.5px, 1.46cqi);
+    letter-spacing: -0.045em;
+  }
+
+  /* Side padding is the cheapest width there is on these two edges: half of
+     it buys another two and a half characters and costs nothing to read. */
+  .cell.edge-top:not(.is-corner) .cell-body,
+  .cell.edge-bottom:not(.is-corner) .cell-body {
+    padding-left: 0.15cqi;
+    padding-right: 0.15cqi;
+  }
+
+  /*
+   * A price is one unbreakable token, so unlike a name it cannot wrap its way
+   * out of trouble: "$10,500" simply spilled over both sides of its space on a
+   * board around 620px, which is what a 1366x768 laptop gets. Set a little
+   * tighter here — and here only — it fits at every board size. The phone
+   * already does exactly this on the same two edges, for the same reason.
+   */
+  .cell.edge-top:not(.is-corner) .cell-price,
+  .cell.edge-bottom:not(.is-corner) .cell-price {
+    font-size: max(9px, 1.4cqi);
+    letter-spacing: -0.04em;
+    overflow-wrap: anywhere;
+  }
 }
 
 /* Decoration is capped: it should label the space, not fill it. */
 .cell-icon {
   font-size: min(3.2cqi, 20px);
   line-height: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/*
+ * Drawn icons (src/components/SpaceIcon.tsx) are all on one 24x24 grid, so
+ * one size here keeps every one of them optically equal. An emoji fallback
+ * still rides on font-size above.
+ */
+.space-glyph {
+  /*
+   * Sized in `em`, NOT in cqi. The stylesheet already tunes .cell-icon's
+   * font-size per edge — the short left and right spaces get a smaller one —
+   * and drawing at 1.15em means the SVG inherits every one of those rules
+   * automatically, exactly as the emoji it replaced did. A fixed cqi size
+   * ignored them and pushed the icon straight out of the short spaces.
+   */
+  width: 1.15em;
+  height: 1.15em;
+  display: block;
+  filter: drop-shadow(0 1px 1.5px rgba(40, 70, 120, 0.13));
 }
 
 .cell.is-corner .cell-icon {
@@ -434,6 +635,12 @@ button:disabled {
 .cell.is-corner .cell-name {
   font-size: max(10.5px, 1.55cqi);
   letter-spacing: 0.04em;
+}
+
+/* Text sits above the corner pattern. */
+.cell-body {
+  position: relative;
+  z-index: 1;
 }
 
 .cell-flag {
@@ -517,6 +724,7 @@ button:disabled {
 /* board centre */
 
 .board-centre {
+  position: relative;
   grid-column: 2 / 10;
   grid-row: 2 / 10;
   display: flex;
@@ -524,59 +732,48 @@ button:disabled {
   align-items: center;
   justify-content: center;
   gap: 1.6cqi;
-  background:
-    radial-gradient(60% 45% at 20% 10%, #fff2e2 0%, transparent 65%),
-    radial-gradient(60% 45% at 85% 88%, #e6f0ff 0%, transparent 65%),
-    #fdfeff;
-  border: 1px solid var(--line);
-  border-radius: 18px;
+  /* Almost white. Whatever pattern is here is drawn, not painted in, so it
+     can be kept under a tenth of an opacity — see .centre-pattern. */
+  background: linear-gradient(180deg, #ffffff 0%, #fbfdff 100%);
+  border: max(1px, 0.14cqi) solid var(--board-cell-line);
+  border-radius: max(12px, 2cqi);
   /* Inset from the playing track so the board reads as a clear ring. */
   margin: 2.4cqi;
   padding: 2.6cqi;
   overflow: hidden;
 }
 
-/* ------------------------------------------------- centrepiece: the globe */
+/* --------------------------------------------------- the centre pattern
 
+   A dotted world and a skyline, drawn in BoardCentre.tsx. The only rule that
+   matters here is the opacity: this has to read as texture in the paper. If
+   you can see it before you see the dice, it is too strong.
+   (What stood here before was the animation for a globe that no longer
+   exists — the rules were dead and are gone.)                              */
 
-
-
-@keyframes globe-bob {
-  0%,
-  100% {
-    transform: translateY(0);
-  }
-  50% {
-    transform: translateY(-2.4%);
-  }
+.centre-pattern {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  border-radius: inherit;
 }
 
-/* landmasses drift so the world reads as turning */
-.landmass {
-  animation: land-drift 26s linear infinite;
+.centre-dots {
+  opacity: 0.06;
 }
 
-@keyframes land-drift {
-  from {
-    transform: translateX(-70px);
-  }
-  to {
-    transform: translateX(70px);
-  }
+.centre-dots circle {
+  fill: #4778bd;
 }
 
-
-@keyframes ring-spin {
-  to {
-    transform: rotate(360deg);
-  }
+.centre-skyline {
+  opacity: 0.04;
 }
 
-/* the six transport / utility assets circling the world */
-
-
-
-@media (prefers-reduced-motion: reduce) {
+.centre-skyline path {
+  fill: #3f6dae;
 }
 
 .centre-status {
@@ -2430,16 +2627,18 @@ button:disabled {
   pointer-events: none;
 }
 
+/*
+ * BUSINESS, a colour per letter — warm on the left running to cool on the
+ * right. It was one gradient clipped to the text before, which cannot put a
+ * chosen colour on a chosen letter. The letters come from BoardCentre.tsx.
+ */
 .centre-wordmark {
+  display: flex;
   font-size: 4.4cqi;
   font-weight: 900;
-  letter-spacing: 0.4em;
-  text-indent: 0.4em;
-  background: linear-gradient(94deg, #ff4757, #ff9a3d 40%, #2e86ff 88%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  opacity: 0.5;
+  letter-spacing: 0.34em;
+  text-indent: 0.34em;
+  opacity: 0.88;
 }
 
 /* A property or event card opens here, in place of the dice. */
@@ -2460,6 +2659,18 @@ button:disabled {
     opacity: 0;
     transform: scale(0.94);
   }
+}
+
+/* The Jail card's own heading icon, lined up with its text. */
+.centre-card-icon {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6em;
+}
+
+.centre-card-icon .space-glyph {
+  width: 1.3em;
+  height: 1.3em;
 }
 
 .centre-card-head {
@@ -3394,21 +3605,65 @@ button:disabled {
    so on those two edges it is smaller and the lines are tighter. Everything
    else keeps its size; the text must never end up underneath the band. */
 
-.cell.edge-left .cell-flag,
-.cell.edge-right .cell-flag,
-.cell.edge-left .cell-icon,
-.cell.edge-right .cell-icon {
+.cell.edge-left:not(.is-corner) .cell-flag,
+.cell.edge-right:not(.is-corner) .cell-flag,
+.cell.edge-left:not(.is-corner) .cell-icon,
+.cell.edge-right:not(.is-corner) .cell-icon {
   font-size: min(2cqi, 13px);
 }
 
-.cell.edge-left .cell-name,
-.cell.edge-right .cell-name {
+.cell.edge-left:not(.is-corner) .cell-name,
+.cell.edge-right:not(.is-corner) .cell-name {
   line-height: 1;
 }
 
-.cell.edge-left .cell-body,
-.cell.edge-right .cell-body {
-  gap: 0.15cqi;
+/*
+ * The flag goes BESIDE the name on these two edges, with the price under
+ * both. Everywhere else it stacks — flag, then name, then price.
+ *
+ * This is not a stylistic preference, it is arithmetic. A left or right space
+ * is wide and SHORT: about 57px tall on a large screen, less on a small one.
+ * A stacked flag, name and price want roughly 40px of that, and the strip at
+ * the foot — the owner's band, and any tokens standing there — wants 20 of
+ * the 57. The flag lost, and was drawn ten pixels ABOVE the top of its own
+ * space, clipped away entirely; the board had no flags at all down either
+ * side. These spaces are 176px WIDE, so the room that is missing vertically
+ * is sitting there unused horizontally. Two lines instead of three.
+ */
+.cell.edge-left:not(.is-corner) .cell-body,
+.cell.edge-right:not(.is-corner) .cell-body {
+  flex-flow: row wrap;
+  align-content: center;
+  align-items: center;
+  gap: 0 0.8cqi;
+  padding-bottom: max(11px, 2.4cqi);
+}
+
+.cell.edge-left:not(.is-corner) .cell-flag,
+.cell.edge-right:not(.is-corner) .cell-flag,
+.cell.edge-left:not(.is-corner) .cell-icon,
+.cell.edge-right:not(.is-corner) .cell-icon {
+  flex: none;
+}
+
+.cell.edge-left:not(.is-corner) .cell-name,
+.cell.edge-right:not(.is-corner) .cell-name {
+  /*
+   * Basis 0 so the name never PUSHES ITSELF onto a line of its own: a flex
+   * line breaks on hypothetical sizes before anything is allowed to shrink,
+   * so an auto basis sent "Hong Kong" below its own flag and the flag out of
+   * the top of the space. Growing back only as far as max-content keeps a
+   * short name tight against its flag, so the pair still reads as centred.
+   */
+  flex: 1 1 0;
+  min-width: 0;
+  max-width: max-content;
+}
+
+/* Forced onto its own line under the pair above it. */
+.cell.edge-left:not(.is-corner) .cell-price,
+.cell.edge-right:not(.is-corner) .cell-price {
+  flex: 0 0 100%;
 }
 
 /* The band sits flush in the strip kept clear at the inner edge. */
@@ -3426,8 +3681,8 @@ button:disabled {
 
 /* The two short edges get a slimmer band still: a wrapped name like
    "Water-ways" pushes the price down, and the text wins over the band. */
-.cell.edge-left .cell-owner,
-.cell.edge-right .cell-owner {
+.cell.edge-left:not(.is-corner) .cell-owner,
+.cell.edge-right:not(.is-corner) .cell-owner {
   height: max(7px, 1.9cqi);
   bottom: 0.2cqi;
 }
