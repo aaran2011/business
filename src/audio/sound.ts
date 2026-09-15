@@ -11,11 +11,14 @@
  * the Web Audio API: no audio files, so nothing to download, nothing
  * copyrighted, and everything works offline the moment the page does.
  *
- * All of it follows the app. Nothing makes a sound while the game is off
- * screen, and closing the page tears the audio down completely.
+ * All of it follows the app, and "follows" means the WINDOW, not just the
+ * tab. A page whose window is behind another app is still `visible` as far as
+ * the visibility API is concerned, so watching visibility alone left the game
+ * rattling dice at somebody who had walked away from it. Focus is watched too,
+ * and closing the page tears the audio down completely.
  */
 
-type Sfx = 'chime' | 'good' | 'bad' | 'click' | 'dice' | 'step'
+type Sfx = 'chime' | 'good' | 'bad' | 'cash' | 'click' | 'dice' | 'step'
 
 const STORAGE_KEY = 'business.sound'
 
@@ -51,8 +54,15 @@ let ctx: AudioContext | null = null
 let master: GainNode | null = null
 let sfxGain: GainNode | null = null
 let started = false
-/** True while the game is off screen: nothing makes a sound then. */
+/** The tab is hidden — switched away from, or the phone was locked. */
 let hidden = false
+/** The window is not the one being used — another app or window is in front. */
+let blurred = typeof document !== 'undefined' ? !document.hasFocus() : false
+
+/** Nothing may make a sound unless the game is the thing on screen. */
+function silent(): boolean {
+  return hidden || blurred
+}
 
 function audio(): AudioContext | null {
   if (ctx) return ctx
@@ -122,7 +132,7 @@ function noise(start: number, length: number, peak: number, freq: number): void 
 }
 
 export function play(sound: Sfx): void {
-  if (!prefs.sfx || hidden) return
+  if (!prefs.sfx || silent()) return
   const c = audio()
   if (!c) return
   if (c.state === 'suspended') void c.resume()
@@ -145,6 +155,17 @@ export function play(sound: Sfx): void {
       tone(370, t + 0.11, 0.34, 0.14, 'triangle')
       tone(294, t + 0.22, 0.4, 0.09, 'sine')
       break
+    case 'cash':
+      // Getting paid. Coins landing, then a bright two-note flourish over
+      // them — longer and happier than 'good', which is the quiet version.
+      noise(t, 0.05, 0.3, 3200)
+      noise(t + 0.06, 0.05, 0.26, 2600)
+      noise(t + 0.13, 0.04, 0.2, 3600)
+      tone(784, t + 0.02, 0.2, 0.15, 'triangle')
+      tone(1046, t + 0.13, 0.26, 0.15, 'triangle')
+      tone(1568, t + 0.24, 0.42, 0.1, 'sine')
+      tone(2093, t + 0.3, 0.36, 0.05, 'sine')
+      break
     case 'click':
       tone(1200, t, 0.05, 0.09, 'square')
       break
@@ -163,27 +184,53 @@ export function play(sound: Sfx): void {
 // --------------------------------------------------------------- lifecycle --
 
 /**
- * Silence while the game is not on screen.
+ * Silence while the game is not the thing being used.
  *
  * A Web Audio context keeps running when the page goes into the background —
- * switching apps, locking the phone, moving to another tab. Hiding the page
- * suspends the whole context; coming back resumes it.
+ * switching apps, locking the phone, moving to another tab, or simply clicking
+ * on another window. Suspending the context stops everything already scheduled
+ * at once, which is what makes it instant rather than "after this dice roll
+ * finishes"; coming back resumes it.
  */
+function suspendNow(): void {
+  if (ctx && ctx.state === 'running') void ctx.suspend()
+}
+
+function resumeIfUsed(): void {
+  if (silent() || !started || !ctx) return
+  if (ctx.state === 'suspended') void ctx.resume()
+}
+
 function goQuiet(): void {
   hidden = true
-  if (ctx && ctx.state === 'running') void ctx.suspend()
+  suspendNow()
 }
 
 function comeBack(): void {
   hidden = false
-  if (!started || !ctx) return
-  if (ctx.state === 'suspended') void ctx.resume()
+  resumeIfUsed()
 }
 
 if (typeof document !== 'undefined') {
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') goQuiet()
     else comeBack()
+  })
+
+  /*
+   * The window losing focus is the case visibility does NOT cover: on a
+   * laptop a tab behind another application is still "visible", so without
+   * this the dice kept rattling at somebody who had moved on to something
+   * else. Suspending on blur stops mid-sound.
+   */
+  window.addEventListener('blur', () => {
+    blurred = true
+    suspendNow()
+  })
+
+  window.addEventListener('focus', () => {
+    blurred = false
+    resumeIfUsed()
   })
 
   // Leaving the page for good: tear the context down rather than leave it
@@ -237,6 +284,8 @@ if (import.meta.env.DEV && typeof window !== 'undefined') {
       contextState: ctx?.state ?? 'none',
       started,
       hidden,
+      blurred,
+      silent: silent(),
       prefs: { ...prefs },
     }),
   }

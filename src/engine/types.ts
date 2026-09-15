@@ -136,6 +136,12 @@ export interface TransferLeg {
   amount: number
 }
 
+/** One player, and what landed in their hand. See `credited` below. */
+export interface NoticeCredit {
+  playerId: string
+  amount: number
+}
+
 export interface OrderRollEntry {
   playerId: string
   dice: number[] | null
@@ -241,6 +247,16 @@ export interface GameNotice {
    * though you are the one who did it.
    */
   transfer?: TransferLeg[]
+  /**
+   * Who RECEIVED money in this event, and how much.
+   *
+   * Presentation only — no rule reads it. It exists so a device can tell
+   * whether the money came to a seat IT is playing, because the sound and the
+   * poppers for getting paid belong to the player who got paid and to nobody
+   * else. Derived from `transfer` when money moved between players, and set
+   * directly when it came from the Bank.
+   */
+  credited?: NoticeCredit[]
 }
 
 export type GameAction =

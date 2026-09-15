@@ -3457,6 +3457,55 @@ button:disabled {
   z-index: 1;
 }
 
+/* ------------------------------------------------------------- poppers
+
+   Two party poppers going off for the player who just got paid — on THAT
+   player's screen only. Purely decorative, so it takes no input and sits
+   above everything that is not a dialog. Whether it draws at all is decided
+   once, in CashCelebration.tsx, which checks the reduced-motion setting at
+   the moment of firing — deliberately not repeated here, so there is one
+   answer to that question and not two that can drift apart.                 */
+
+.poppers {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 55;
+}
+
+.popper-bit {
+  position: absolute;
+  bottom: 6vh;
+  width: var(--size);
+  height: calc(var(--size) * 1.7);
+  border-radius: 2px;
+  opacity: 0;
+  transform-origin: center;
+  animation: popper-fly 1.55s cubic-bezier(0.18, 0.7, 0.36, 1) var(--delay) both;
+}
+
+/* Up and out fast, then falling back as it fades — a thrown piece of paper,
+   not a balloon. */
+@keyframes popper-fly {
+  0% {
+    opacity: 0;
+    transform: translate3d(0, 0, 0) rotate(var(--tilt)) scale(0.4);
+  }
+  8% {
+    opacity: 1;
+  }
+  60% {
+    opacity: 1;
+    transform: translate3d(var(--dx), var(--dy), 0) rotate(var(--rot)) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate3d(calc(var(--dx) * 1.16), calc(var(--dy) * 0.45), 0)
+      rotate(calc(var(--rot) * 1.3)) scale(0.9);
+  }
+}
+
 /* ------------------------------------------------------- notices, by screen
 
    On a phone the eye is already at the top, by the timer, so that is where a

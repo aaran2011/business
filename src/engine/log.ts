@@ -1,4 +1,4 @@
-import type { GameState, LogKind, TransferLeg } from './types'
+import type { GameState, LogKind, NoticeCredit, TransferLeg } from './types'
 
 const MAX_LOG_ENTRIES = 400
 
@@ -31,10 +31,35 @@ export function notify(
   text: string,
   tone: 'good' | 'bad' | 'neutral' = 'neutral',
   transfer?: TransferLeg[],
+  credited?: NoticeCredit[],
 ): void {
-  state.notices.push({ id: state.nextNoticeId++, text, playerId, tone, transfer })
+  state.notices.push({
+    id: state.nextNoticeId++,
+    text,
+    playerId,
+    tone,
+    transfer,
+    credited: credited ?? creditsFrom(transfer),
+  })
   // Only the recent ones are ever shown; the log keeps the full history.
   if (state.notices.length > 8) state.notices.shift()
+}
+
+/**
+ * Who ended up better off, from the legs of a transfer.
+ *
+ * A player can appear on more than one leg — a card that collects from every
+ * other player is one event with five legs into the same hand — so the legs
+ * are summed per player. This is what the receiving device listens for.
+ */
+function creditsFrom(legs?: TransferLeg[]): NoticeCredit[] | undefined {
+  if (!legs?.length) return undefined
+  const byPlayer = new Map<string, number>()
+  for (const leg of legs) {
+    if (leg.amount > 0 && leg.toId) byPlayer.set(leg.toId, (byPlayer.get(leg.toId) ?? 0) + leg.amount)
+  }
+  if (!byPlayer.size) return undefined
+  return [...byPlayer].map(([playerId, amount]) => ({ playerId, amount }))
 }
 
 /**
@@ -61,6 +86,9 @@ export function notifyMoney(
     playerId,
     `${name} ${verb} ${money(Math.abs(delta))} — ${reason}`,
     delta > 0 ? 'good' : 'bad',
+    undefined,
+    // Money from the Bank: the player named here is the one it went to.
+    delta > 0 ? [{ playerId, amount: delta }] : undefined,
   )
 }
 

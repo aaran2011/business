@@ -3,6 +3,7 @@ import { BOARD } from './data/board'
 import { COUNTRIES } from './data/properties'
 import { ActionBar } from './components/ActionBar'
 import { Board } from './components/Board'
+import { CashCelebration } from './components/CashCelebration'
 import { BuildOffer } from './components/BuildOffer'
 import { BuildWarning } from './components/BuildWarning'
 import { JailDice } from './components/Dice'
@@ -472,6 +473,9 @@ function PlayingView({
 
       {/* Short lines about what others have done. Nothing to dismiss. */}
       <NoticeStack notices={state.notices} state={state} controlsPlayer={controlsPlayer} />
+
+      {/* Poppers and a coin flourish, for the player the money went to. */}
+      <CashCelebration notices={state.notices} state={state} controlsPlayer={controlsPlayer} />
 
       {owed > 0 && (
         <div className="debt-banner">

@@ -18,7 +18,11 @@
  * passed around the table works completely offline.
  */
 
-const CACHE = 'business-v1'
+// Bumped whenever a release must not be served from an old cache. The
+// activate handler deletes every cache that is not this one, so a stale
+// bundle — one still carrying the background music that was removed, say —
+// cannot survive an update.
+const CACHE = 'business-v2'
 const SHELL = ['/', '/index.html', '/favicon.svg', '/manifest.webmanifest']
 
 self.addEventListener('install', (event) => {
