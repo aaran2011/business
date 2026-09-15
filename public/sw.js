@@ -48,6 +48,16 @@ self.addEventListener('fetch', (event) => {
   // Only this origin. The relay and anything else is left well alone.
   if (url.origin !== self.location.origin) return
 
+  /*
+   * Never serve this file, or the manifest, out of the cache.
+   *
+   * Everything else here is content-hashed, so a cache-first hit is always
+   * the right bytes. These two keep their names across every release, so
+   * answering them from the cache hands back an OLD worker — the one thing
+   * that can stop an update from ever arriving.
+   */
+  if (url.pathname === '/sw.js' || url.pathname === '/manifest.webmanifest') return
+
   if (request.mode === 'navigate') {
     event.respondWith(
       fetch(request)
