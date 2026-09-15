@@ -391,8 +391,43 @@ function PlayingView({
   }
   const lowTime = remainingMs !== null && remainingMs <= 60000
 
+  /**
+   * The host can fold away the two bars — the header at the top and the action
+   * bar at the bottom — leaving the board and the leaderboard on their own.
+   *
+   * It is a view of THIS screen only, never sent to the other devices. Their
+   * bottom bar is how they buy, pay and get out of Jail; reaching across and
+   * taking it away would stop them playing.
+   */
+  const [barsHidden, setBarsHidden] = useState(false)
+  /*
+    Every button that answers a question — buy, decline, pay, Jail — is in the
+    bottom bar, so with the bars folded away the host can roll (the die is on
+    the board) but cannot answer. The turn would sit there, and in a multiplayer
+    game everyone else would sit with it. So while the bars are down and this
+    device is the one being asked, the button wears a dot. It changes nothing
+    about the game; it just means the stall cannot go unnoticed.
+  */
+  const waitingOnMe =
+    canAct &&
+    !state.paused &&
+    (owed > 0 ||
+      state.stage === 'awaitingPurchase' ||
+      state.stage === 'awaitingBuild' ||
+      state.stage === 'inJail')
+  const peekToggle = isHost ? (
+    <PeekToggle
+      hidden={barsHidden}
+      needsYou={barsHidden && waitingOnMe}
+      onToggle={() => setBarsHidden(!barsHidden)}
+    />
+  ) : null
+
   return (
     <div className="app">
+      {/* Hidden bars still leave the way back: the button floats where the
+          header was. */}
+      {barsHidden && peekToggle}
       {/*
         The header carries what each person is actually allowed to do. The host
         runs the game — the one who handed out the code — so the clock, the code
@@ -403,32 +438,36 @@ function PlayingView({
         clock, not the host's. Only SETTING it is restricted, which the engine
         enforces too — `SET_TIMER` is refused from any device but the host's.
       */}
-      <header className="topbar">
-        {isHost && (
-          <button className="btn btn-sm" onClick={() => setShowTimer(true)}>
-            {'\u{23F1}\u{FE0F}'} Timer
+      {!barsHidden && (
+        <header className="topbar">
+          {isHost && (
+            <button className="btn btn-sm" onClick={() => setShowTimer(true)}>
+              {'\u{23F1}\u{FE0F}'} Timer
+            </button>
+          )}
+          {isHost && session.role !== 'solo' && (
+            <button className="btn btn-sm" onClick={() => setShowCode(true)}>
+              Get Code
+            </button>
+          )}
+          {remainingMs !== null && (
+            <span className={`clock${lowTime ? ' is-low' : ''}`}>{formatClock(remainingMs)}</span>
+          )}
+          {/* Says what is happening instead of throwing anybody out of the game. */}
+          {reconnecting && <span className="reconnecting">Reconnecting…</span>}
+          <div className="topbar-spacer" />
+          <button className="btn btn-sm btn-ghost" onClick={() => setShowHouseRules(true)}>
+            House Rules
           </button>
-        )}
-        {isHost && session.role !== 'solo' && (
-          <button className="btn btn-sm" onClick={() => setShowCode(true)}>
-            Get Code
-          </button>
-        )}
-        {remainingMs !== null && (
-          <span className={`clock${lowTime ? ' is-low' : ''}`}>{formatClock(remainingMs)}</span>
-        )}
-        {/* Says what is happening instead of throwing anybody out of the game. */}
-        {reconnecting && <span className="reconnecting">Reconnecting…</span>}
-        <div className="topbar-spacer" />
-        <button className="btn btn-sm btn-ghost" onClick={() => setShowHouseRules(true)}>
-          House Rules
-        </button>
-        {session.role !== 'solo' && (
-          <button className="btn btn-sm btn-ghost" onClick={() => setConfirmLeave(true)}>
-            Leave
-          </button>
-        )}
-      </header>
+          {session.role !== 'solo' && (
+            <button className="btn btn-sm btn-ghost" onClick={() => setConfirmLeave(true)}>
+              Leave
+            </button>
+          )}
+          {/* Far right of the header: the top right of the screen. */}
+          {peekToggle}
+        </header>
+      )}
 
       {/* Short lines about what others have done. Nothing to dismiss. */}
       <NoticeStack notices={state.notices} state={state} controlsPlayer={controlsPlayer} />
@@ -532,17 +571,19 @@ function PlayingView({
         </div>
       </div>
 
-      <ActionBar
-        state={state}
-        dispatch={dispatch}
-        canAct={canAct}
-        isHost={isHost}
-        onManage={() => setShowManage(true)}
-        onHouseRules={() => setShowHouseRules(true)}
-        onEndGame={() => dispatch({ type: 'END_GAME' })}
-        onRemovePlayer={() => setShowRemove(true)}
-        onBuild={requestBuild}
-      />
+      {!barsHidden && (
+        <ActionBar
+          state={state}
+          dispatch={dispatch}
+          canAct={canAct}
+          isHost={isHost}
+          onManage={() => setShowManage(true)}
+          onHouseRules={() => setShowHouseRules(true)}
+          onEndGame={() => dispatch({ type: 'END_GAME' })}
+          onRemovePlayer={() => setShowRemove(true)}
+          onBuild={requestBuild}
+        />
+      )}
 
       {state.paused && <PauseOverlay dispatch={dispatch} />}
 
@@ -598,6 +639,47 @@ function PlayingView({
         <TimerModal state={state} dispatch={dispatch} onClose={() => setShowTimer(false)} />
       )}
     </div>
+  )
+}
+
+/**
+ * The host's fold-away switch for the two bars.
+ *
+ * The slash is on the eye while the bars are UP, because the slash is what the
+ * button is about to do. Once they are down the slash comes off and the plain
+ * eye brings them back. Only the host's own screen changes — nothing about this
+ * goes over the wire.
+ */
+function PeekToggle({
+  hidden,
+  needsYou,
+  onToggle,
+}: {
+  hidden: boolean
+  /** Bars are down and the game is waiting for a choice that lives in them. */
+  needsYou: boolean
+  onToggle: () => void
+}) {
+  const label = needsYou
+    ? 'Show the controls — you have something to decide'
+    : hidden
+      ? 'Show the timer and controls'
+      : 'Hide the timer and controls'
+  return (
+    <button
+      type="button"
+      className={`peek-btn${hidden ? ' is-floating' : ''}${needsYou ? ' needs-you' : ''}`}
+      onClick={onToggle}
+      aria-pressed={hidden}
+      aria-label={label}
+      title={label}
+    >
+      <svg viewBox="0 0 24 24" width="17" height="17" aria-hidden="true">
+        <path d="M2 12s3.8-6.4 10-6.4S22 12 22 12s-3.8 6.4-10 6.4S2 12 2 12z" />
+        <circle cx="12" cy="12" r="2.8" />
+        {!hidden && <line className="peek-slash" x1="4.5" y1="19.5" x2="19.5" y2="4.5" />}
+      </svg>
+    </button>
   )
 }
 
