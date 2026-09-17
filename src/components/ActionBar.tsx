@@ -70,6 +70,9 @@ export function ActionBar({
     ? canBuild(state, player.id, buildOffer.propertyId)
     : { allowed: false, reason: '', cost: 0, nextLabel: '' }
   const ownsAnything = ownedPropertyIds(state, player.id).length > 0
+  // Money just came in and the card saying why is still open. Every other
+  // question waits behind its OK, so nothing is answered before it is read.
+  const awaitingOk = (state.moneyToAck ?? []).some((a) => a.playerId === player.id)
 
   // Jail is manual: nothing rolls for the player, they choose.
   const jailButtons = inJail ? (
@@ -154,6 +157,7 @@ export function ActionBar({
   )
 
   if (mode === 'decisions') {
+    if (awaitingOk) return null
     return (
       <>
         {jailButtons}
@@ -166,13 +170,19 @@ export function ActionBar({
 
   return (
     <div className="actionbar">
-      {jailButtons}
-      {purchaseButtons}
-      {buildButtons}
+      {!awaitingOk && (
+        <>
+          {jailButtons}
+          {purchaseButtons}
+          {buildButtons}
+        </>
+      )}
       {manageButton}
-      {payButton}
+      {!awaitingOk && payButton}
       {isHost && <HostControls {...{ onHouseRules, onRemovePlayer, onEndGame }} />}
-      <div className="action-hint">{hintFor(state)}</div>
+      <div className="action-hint">
+        {awaitingOk ? 'Press OK on the card to carry on.' : hintFor(state)}
+      </div>
     </div>
   )
 }

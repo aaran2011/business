@@ -3453,34 +3453,110 @@ button:disabled {
 
 .popper-bit {
   position: absolute;
-  bottom: 6vh;
-  width: var(--size);
-  height: calc(var(--size) * 1.7);
-  border-radius: 2px;
+  top: -5vh;
   opacity: 0;
   transform-origin: center;
-  animation: popper-fly 1.55s cubic-bezier(0.18, 0.7, 0.36, 1) var(--delay) both;
+  will-change: transform, opacity;
+  animation: confetti-fall var(--dur, 2.8s) cubic-bezier(0.3, 0.55, 0.5, 1) var(--delay, 0s) both;
 }
 
-/* Up and out fast, then falling back as it fades — a thrown piece of paper,
-   not a balloon. */
-@keyframes popper-fly {
+/* Top to bottom, with a lazy sway and a spin, fading only at the very end. */
+@keyframes confetti-fall {
   0% {
     opacity: 0;
-    transform: translate3d(0, 0, 0) rotate(var(--tilt)) scale(0.4);
+    transform: translate3d(0, 0, 0) rotate(var(--tilt));
   }
-  8% {
+  6% {
     opacity: 1;
   }
-  60% {
+  35% {
+    transform: translate3d(var(--sway), 38vh, 0) rotate(calc(var(--rot) * 0.35));
+  }
+  70% {
+    transform: translate3d(calc(var(--sway) * -0.5), 78vh, 0) rotate(calc(var(--rot) * 0.7));
+  }
+  88% {
     opacity: 1;
-    transform: translate3d(var(--dx), var(--dy), 0) rotate(var(--rot)) scale(1);
   }
   100% {
     opacity: 0;
-    transform: translate3d(calc(var(--dx) * 1.16), calc(var(--dy) * 0.45), 0)
-      rotate(calc(var(--rot) * 1.3)) scale(0.9);
+    transform: translate3d(calc(var(--sway) * 0.3), 110vh, 0) rotate(var(--rot));
   }
+}
+
+/* ------------------------------------------------------------ money card
+
+   Why you were paid, where the country card opens, with an OK. */
+
+.money-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 14px 16px 16px;
+  text-align: center;
+}
+
+.money-who {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 15px;
+}
+
+.money-amount {
+  font-size: 34px;
+  font-weight: 900;
+  line-height: 1.05;
+  color: #12a36c;
+  font-variant-numeric: tabular-nums;
+  animation: money-pop 0.45s cubic-bezier(0.2, 1.4, 0.4, 1);
+}
+
+@keyframes money-pop {
+  from {
+    transform: scale(0.6);
+    opacity: 0;
+  }
+}
+
+.money-why {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text);
+  line-height: 1.3;
+}
+
+.money-from {
+  font-size: 13px;
+  color: var(--text-dim);
+}
+
+.money-ok {
+  min-width: 120px;
+  min-height: 44px;
+  margin-top: 6px;
+  justify-content: center;
+  font-size: 15px;
+}
+
+/* On the phone the centre is narrower: a little smaller, same order. */
+.mboard .money-body {
+  gap: 4px;
+  padding: 10px 10px 12px;
+}
+
+.mboard .money-amount {
+  font-size: 28px;
+}
+
+.mboard .money-why {
+  font-size: 13px;
+}
+
+.mboard .money-from,
+.mboard .money-who {
+  font-size: 12px;
 }
 
 /* ------------------------------------------------------- notices, by screen

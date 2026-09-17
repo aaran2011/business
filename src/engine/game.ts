@@ -67,6 +67,7 @@ export function createInitialState(settings: GameSettings = DEFAULT_SETTINGS): G
     orderRollRound: 1,
     log: [],
     notices: [],
+    moneyToAck: [],
     winnerId: null,
     nextLogId: 1,
     nextNoticeId: 1,
@@ -144,6 +145,9 @@ function apply(state: GameState, action: GameAction): void {
       return
     case 'END_TURN':
       return endTurn(state)
+    case 'ACK_MONEY':
+      state.moneyToAck = (state.moneyToAck ?? []).filter((a) => a.id !== action.id)
+      return
     case 'UPDATE_SETTINGS':
       state.settings = action.settings
       addLog(state, 'system', 'House rules updated.')
@@ -670,6 +674,8 @@ function advanceToNextPlayer(state: GameState): void {
 
     state.currentIndex = index
     state.turnNumber += 1
+    // Whatever the last player had not read belonged to their turn.
+    state.moneyToAck = []
     // The rolled number stays on the table until the next roll. Clearing it
     // dropped the die back to a blank 1, which looks like a stuck die.
     state.pendingMove = null

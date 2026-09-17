@@ -32,17 +32,37 @@ export function notify(
   tone: 'good' | 'bad' | 'neutral' = 'neutral',
   transfer?: TransferLeg[],
   credited?: NoticeCredit[],
+  why?: string,
 ): void {
-  state.notices.push({
-    id: state.nextNoticeId++,
-    text,
-    playerId,
-    tone,
-    transfer,
-    credited: credited ?? creditsFrom(transfer),
-  })
+  const id = state.nextNoticeId++
+  const credits = credited ?? creditsFrom(transfer)
+  state.notices.push({ id, text, playerId, tone, transfer, credited: credits, why })
+  askToAcknowledge(state, id, credits, why ?? text, transfer)
   // Only the recent ones are ever shown; the log keeps the full history.
   if (state.notices.length > 8) state.notices.shift()
+}
+
+/**
+ * If the player whose turn it is was just paid, hold the turn for their OK.
+ *
+ * Only the CURRENT player's money waits. Rent paid to somebody else during
+ * this turn is still shown to them, with an OK, but it never holds up the
+ * player who is actually moving — one person away from their phone must not
+ * be able to freeze everyone else's game.
+ */
+function askToAcknowledge(
+  state: GameState,
+  id: number,
+  credits: NoticeCredit[] | undefined,
+  why: string,
+  legs?: TransferLeg[],
+): void {
+  if (state.phase !== 'playing' || !credits?.length) return
+  const currentId = state.turnOrder[state.currentIndex]
+  const mine = credits.find((c) => c.playerId === currentId)
+  if (!mine) return
+  const from = [...new Set((legs ?? []).filter((l) => l.toId === currentId).map((l) => l.fromId))]
+  ;(state.moneyToAck ??= []).push({ id, playerId: currentId, amount: mine.amount, why, from })
 }
 
 /**
@@ -89,6 +109,7 @@ export function notifyMoney(
     undefined,
     // Money from the Bank: the player named here is the one it went to.
     delta > 0 ? [{ playerId, amount: delta }] : undefined,
+    reason,
   )
 }
 
@@ -109,7 +130,7 @@ export function notifyTransfer(
 ): void {
   const real = legs.filter((l) => l.amount > 0 && l.fromId && l.toId)
   if (!real.length) return
-  notify(state, actorId, reason, tone, real)
+  notify(state, actorId, reason, tone, real, undefined, reason)
 }
 
 export function money(amount: number): string {

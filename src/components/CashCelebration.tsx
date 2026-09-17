@@ -5,8 +5,9 @@ import type { GameNotice, GameState } from '../engine/types'
 /**
  * Getting paid, on the screen of the player who got paid.
  *
- * Two popper bursts and a coin flourish, and BOTH belong to the person the
- * money went to. Everybody else keeps the quiet line they already get. That is
+ * A shower of confetti falling from the top of the screen to the bottom, and
+ * a coin flourish — on a phone and on a laptop alike — and BOTH belong to the
+ * person the money went to. Everybody else keeps the quiet line they already get. That is
  * the whole point of it: the table hears one person being pleased, rather than
  * six devices going off at once every time somebody crosses START.
  *
@@ -15,8 +16,9 @@ import type { GameNotice, GameState } from '../engine/types'
  * paid to you while somebody else is playing is still money to you.
  */
 
-const BURST_MS = 1900
-const PIECES = 28
+/** Longest fall plus the latest start, with a little to spare. */
+const BURST_MS = 4600
+const PIECES = 72
 
 /** The festive set, plus the receiving player's own colour mixed through it. */
 const CONFETTI = ['#ff5f7e', '#ffb020', '#ffd76a', '#17b978', '#2e86ff', '#8e86f0', '#00c2c7']
@@ -128,27 +130,27 @@ export function CashCelebration({
 }
 
 /**
- * One burst: half the pieces thrown in from the bottom left, half from the
- * bottom right, so it reads as two poppers going off rather than a rain of
- * paper. Every piece gets its own angle, distance, spin and delay.
+ * One shower. Every piece starts just above the top of the screen at its own
+ * spot across the width, waits its own moment, and drifts down past the
+ * bottom — swaying a little, spinning as it goes. A third are dots, the rest
+ * paper strips, so it reads as confetti rather than a colour wash.
  */
 function makePieces(ownColour?: string): CSSProperties[] {
   const palette = ownColour ? [ownColour, ownColour, ...CONFETTI] : CONFETTI
   return Array.from({ length: PIECES }, (_, i) => {
-    const fromLeft = i % 2 === 0
-    // Fired inwards and upwards: 20°-75° above the horizontal.
-    const angle = (20 + Math.random() * 55) * (Math.PI / 180)
-    const reach = 38 + Math.random() * 46
+    const size = 6 + Math.random() * 6
+    const round = i % 3 === 0
     return {
-      left: fromLeft ? '4vw' : undefined,
-      right: fromLeft ? undefined : '4vw',
-      '--dx': `${(fromLeft ? 1 : -1) * Math.cos(angle) * reach}vw`,
-      '--dy': `${-Math.sin(angle) * reach - 8}vh`,
-      '--rot': `${(Math.random() * 900 - 450).toFixed(0)}deg`,
-      '--tilt': `${(Math.random() * 60 - 30).toFixed(0)}deg`,
-      '--delay': `${(Math.random() * 0.16).toFixed(3)}s`,
-      '--size': `${(6 + Math.random() * 6).toFixed(1)}px`,
+      left: `${(Math.random() * 100).toFixed(1)}vw`,
+      width: `${size.toFixed(1)}px`,
+      height: `${(round ? size : size * 1.7).toFixed(1)}px`,
+      borderRadius: round ? '50%' : '2px',
       background: palette[i % palette.length],
+      '--sway': `${(Math.random() * 18 - 9).toFixed(1)}vw`,
+      '--rot': `${(Math.random() * 1080 - 540).toFixed(0)}deg`,
+      '--tilt': `${(Math.random() * 90 - 45).toFixed(0)}deg`,
+      '--delay': `${(Math.random() * 1.1).toFixed(2)}s`,
+      '--dur': `${(2.3 + Math.random() * 1.2).toFixed(2)}s`,
     } as CSSProperties
   })
 }

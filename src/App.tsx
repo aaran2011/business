@@ -5,6 +5,7 @@ import { ActionBar } from './components/ActionBar'
 import { Board } from './components/Board'
 import { CashCelebration } from './components/CashCelebration'
 import { MobileBoard } from './components/MobileBoard'
+import { MoneyCard, useMoneyCards } from './components/MoneyCard'
 import {
   LeaderboardSheet,
   MobileHeader,
@@ -151,12 +152,16 @@ export default function App() {
   const dialogOpen = showManage || showHouseRules || showTimer || showRemove
   const currentId = state.turnOrder[state.currentIndex]
   const blockedByDebt = currentId ? debtOwedBy(state, currentId) > 0 : false
+  // The player on the move was paid and has not pressed OK yet: the turn
+  // waits. Read from the shared state, so it holds on whichever device runs
+  // the game, whichever device the player is holding.
+  const waitingForOk = (state.moneyToAck ?? []).some((a) => a.playerId === currentId)
 
   useEffect(() => {
     if (!state.settings.turn.autoEnd || isGuest) return
     if (state.phase !== 'playing' || state.paused) return
     if (state.stage !== 'awaitingEndTurn') return
-    if (dialogOpen || blockedByDebt) return
+    if (dialogOpen || blockedByDebt || waitingForOk) return
 
     // Long enough that the line about what just happened is readable before
     // the next player is up, short enough not to feel like a wait.
@@ -174,6 +179,7 @@ export default function App() {
     state.settings.turn.autoEndDelayMs,
     dialogOpen,
     blockedByDebt,
+    waitingForOk,
     isGuest,
   ])
 
@@ -360,6 +366,9 @@ function PlayingView({
     if (state.paused) return 'Paused.'
     if (state.stage === 'moving') return 'Moving…'
     if (state.stage === 'inJail') return `${player.name} is in Jail.`
+    if (!canAct && (state.moneyToAck ?? []).some((a) => a.playerId === player.id)) {
+      return `${player.name} is collecting their money…`
+    }
     if (!canAct) {
       // Say what they are actually doing, so nobody is left watching a frozen
       // board wondering whether the game has hung.
@@ -445,15 +454,29 @@ function PlayingView({
   const [showLeaderboard, setShowLeaderboard] = useState(false)
   const canRoll = state.stage === 'awaitingRoll' && owed === 0 && !state.paused && canAct
 
+  const { card: moneyCard, dismissLocal } = useMoneyCards(state, controlsPlayer)
+
   const centreCard =
     /*
-      One slot in the middle of the board. Jail first, then whatever
-      property the player has been asked about.
+      One slot in the middle of the board. Money received first — the game
+      waits on its OK — then Jail, then whatever property the player has been
+      asked about.
 
       This is INFORMATION. The buttons all live in the bar at the
       bottom of the screen, in one place, so nothing is offered twice.
     */
-    state.stage === 'inJail' && !state.paused ? (
+    moneyCard && !state.paused ? (
+      <MoneyCard
+        key={moneyCard.key}
+        card={moneyCard}
+        state={state}
+        onOk={() =>
+          moneyCard.holdsTheTurn
+            ? dispatch({ type: 'ACK_MONEY', id: moneyCard.noticeId })
+            : dismissLocal(moneyCard.key)
+        }
+      />
+    ) : state.stage === 'inJail' && !state.paused ? (
       <div className="centre-card jail-card">
         <div className="centre-card-head">
           {/* The drawn bars, not the police-officer emoji: there is

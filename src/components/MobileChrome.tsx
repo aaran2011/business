@@ -233,8 +233,10 @@ export function MobileTurnPanel({
   // Exactly the conditions ActionBar uses to show a decision, so the button
   // row appears when — and only when — there is something to answer.
   const busy = state.stage === 'moving' || state.paused
+  const awaitingOk = (state.moneyToAck ?? []).some((a) => a.playerId === player.id)
   const hasDecision =
     canAct &&
+    !awaitingOk &&
     ((state.stage === 'inJail' && !busy) ||
       (state.stage === 'awaitingPurchase' && Boolean(state.pendingPurchase)) ||
       (state.stage === 'awaitingBuild' && Boolean(state.pendingBuild)) ||

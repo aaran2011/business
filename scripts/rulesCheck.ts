@@ -2020,6 +2020,73 @@ console.log('— The rolled number stays on the table —')
 }
 
 // ===========================================================================
+console.log('— Getting paid waits for OK —')
+// ===========================================================================
+
+{
+  // The player on the move is paid: the turn holds until they have read it.
+  const state = makeState(2)
+  const p = state.players.find((x) => x.id === state.turnOrder[state.currentIndex])!
+  p.position = 34
+  movePlayer(state, p.id, 4) // crosses START
+  check('one money card is waiting', state.moneyToAck.length, 1)
+  check('for the player on the move', state.moneyToAck[0].playerId, p.id)
+  check('with the amount', state.moneyToAck[0].amount, 1500)
+  check('and the reason on its own', state.moneyToAck[0].why, 'completed a round')
+  check('from the Bank, so nobody is named as payer', state.moneyToAck[0].from, [])
+  const okd = gameReducer(state, { type: 'ACK_MONEY', id: state.moneyToAck[0].id })
+  check('OK clears it', okd.moneyToAck.length, 0)
+  check('and changes nothing else about the money', okd.players.find((x) => x.id === p.id)!.cash, p.cash)
+}
+{
+  // Party House: paid by the others, and they are named.
+  const state = makeState(3)
+  const lander = state.turnOrder[state.currentIndex]
+  handlePartyHouse(state, lander)
+  check('Party House waits for OK', state.moneyToAck.length, 1)
+  check('for $200 from each of two', state.moneyToAck[0].amount, 400)
+  check('naming both payers', state.moneyToAck[0].from.length, 2)
+  ok('and never the lander', !state.moneyToAck[0].from.includes(lander))
+}
+{
+  // Rent paid TO someone else never holds up the player who is moving.
+  const state = makeState(2)
+  const mover = state.turnOrder[state.currentIndex]
+  const owner = state.players.find((x) => x.id !== mover)!.id
+  give(state, owner, 'germany')
+  state.players.find((x) => x.id === mover)!.position = 11
+  handlePropertyLanding(state, mover, 'germany')
+  check('rent to another player waits for nobody', state.moneyToAck.length, 0)
+  ok('but the owner is still told they were paid', !!state.notices.at(-1)!.credited?.some((c) => c.playerId === owner))
+}
+{
+  // Losing money is never something to acknowledge.
+  const state = makeState(2)
+  const mover = state.turnOrder[state.currentIndex]
+  give(state, mover, 'egypt', 'iran', 'iraq')
+  handleCustomDuty(state, mover)
+  check('paying a duty asks for no OK', state.moneyToAck.length, 0)
+}
+{
+  // Whatever was left unread belongs to that turn, and goes with it.
+  let state = makeState(2)
+  const p = state.players.find((x) => x.id === state.turnOrder[state.currentIndex])!
+  p.position = 34
+  movePlayer(state, p.id, 4)
+  state.stage = 'awaitingEndTurn'
+  state = gameReducer(state, { type: 'END_TURN' })
+  check('the next turn starts with nothing to read', state.moneyToAck.length, 0)
+}
+{
+  // A guest may press OK only on their own turn.
+  const state = makeState(2)
+  const mover = state.turnOrder[state.currentIndex]
+  const other = state.players.find((x) => x.id !== mover)!.id
+  ok('the mover may press OK', guestMayDo({ type: 'ACK_MONEY', id: 1 }, mover, state))
+  ok('nobody else may', !guestMayDo({ type: 'ACK_MONEY', id: 1 }, other, state))
+}
+
+// ===========================================================================
 
 console.log('')
 if (failures.length) {

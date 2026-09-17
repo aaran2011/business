@@ -142,6 +142,24 @@ export interface NoticeCredit {
   amount: number
 }
 
+/**
+ * Money the player whose turn it is has just received, waiting for them to
+ * press OK.
+ *
+ * Self-contained on purpose: the notice it came from can scroll out of the
+ * short notice queue, and the card still has to say what it was for.
+ */
+export interface MoneyAck {
+  /** The id of the notice it came from — also how OK names it. */
+  id: number
+  playerId: string
+  amount: number
+  /** Why: "completed a round", "Lottery Prize", "Party House — …". */
+  why: string
+  /** Who paid, when it came from other players rather than the Bank. */
+  from: string[]
+}
+
 export interface OrderRollEntry {
   playerId: string
   dice: number[] | null
@@ -223,6 +241,15 @@ export interface GameState {
    * the same order. It is capped because only the recent ones matter.
    */
   notices: GameNotice[]
+  /**
+   * Money the current player has received this turn and not yet read.
+   *
+   * The turn does not end while this is not empty: the player sees why they
+   * were paid and presses OK, and only then does play move on. It is shared
+   * state so the device running the game knows to wait, whichever device the
+   * player is on. Emptied whenever the turn passes.
+   */
+  moneyToAck: MoneyAck[]
   winnerId: string | null
 
   /** Monotonic counters so ids stay stable across immutable updates. */
@@ -257,6 +284,8 @@ export interface GameNotice {
    * directly when it came from the Bank.
    */
   credited?: NoticeCredit[]
+  /** The reason on its own, without the name and amount around it. */
+  why?: string
 }
 
 export type GameAction =
@@ -300,5 +329,7 @@ export type GameAction =
   /** From the results screen: carry on playing with the clock switched off. */
   | { type: 'RESUME_WITHOUT_TIMER' }
   | { type: 'RESET' }
+  /** "OK" on a money card. */
+  | { type: 'ACK_MONEY'; id: number }
   /** Wholesale replacement of the game with the host's copy. Network only. */
   | { type: 'NET_SYNC'; state: GameState }
