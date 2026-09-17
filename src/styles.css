@@ -3378,6 +3378,10 @@ button:disabled {
  * plain colour first, for any browser without color-mix().
  */
 .dice-roller[data-ink] .dice-tint {
+  /* See-through, so the colour says whose turn it is without being a solid
+     block. The value comes from Dice.tsx, which also picks the lettering
+     for the colour as it looks at this strength. */
+  opacity: var(--tint-opacity, 0.55);
   background: var(--turn);
   background: linear-gradient(
     150deg,

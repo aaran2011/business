@@ -144,16 +144,24 @@ export function Die({ value, rolling, rollId, durationMs, colour }: DieProps) {
 }
 
 /**
- * Whether a colour is light enough to need dark lettering on top of it.
- * Relative luminance, as WCAG defines it; amber and emerald come out light,
- * crimson, azure, violet and slate dark.
+ * How strongly the player's colour shows through the dice panel. Half-way
+ * or so: enough to say whose turn it is at a glance, not a solid slab.
+ * The stylesheet reads it from --tint-opacity, so the two cannot disagree.
+ */
+const TINT_OPACITY = 0.55
+
+/**
+ * Whether the panel, as it actually appears, is light enough to need dark
+ * lettering. The colour is laid over a near-white board at TINT_OPACITY, so
+ * that blend is what gets measured — relative luminance, as WCAG defines it.
  */
 function isLight(hex: string): boolean {
   const m = /^#?([0-9a-f]{6})$/i.exec(hex)
   if (!m) return false
   const n = parseInt(m[1], 16)
+  const seen = (v: number) => v * TINT_OPACITY + 255 * (1 - TINT_OPACITY)
   const channel = (v: number) => {
-    const c = v / 255
+    const c = seen(v) / 255
     return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
   }
   const lum =
@@ -235,7 +243,11 @@ export function DiceTray({
     <div
       className="dice-roller"
       data-ink={colour ? (isLight(colour) ? 'dark' : 'white') : undefined}
-      style={colour ? ({ '--turn': colour } as CSSProperties) : undefined}
+      style={
+        colour
+          ? ({ '--turn': colour, '--tint-opacity': TINT_OPACITY } as CSSProperties)
+          : undefined
+      }
     >
       <span className="dice-tint" aria-hidden="true" />
       {turnName && (
