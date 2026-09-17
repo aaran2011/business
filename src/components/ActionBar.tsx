@@ -16,6 +16,13 @@ interface Props {
   isHost: boolean
   /** Building goes through here so the colour-group warning cannot be skipped. */
   onBuild: (propertyId: string) => void
+  /**
+   * `full` is the bar along the bottom of the square board. `decisions` is only
+   * the buttons that answer the game — buy, build, pay, Jail — for the phone's
+   * turn panel, which keeps everything else in its own menu. Same logic either
+   * way, so the phone can never offer a choice the rules would refuse.
+   */
+  mode?: 'full' | 'decisions'
 }
 
 /**
@@ -32,8 +39,10 @@ export function ActionBar({
   canAct,
   isHost,
   onBuild,
+  mode = 'full',
 }: Props) {
   if (state.phase !== 'playing') return null
+  if (mode === 'decisions' && !canAct) return null
 
   // Waiting your turn. The host still runs the game while somebody else plays,
   // so its controls stay put rather than disappearing for most of the game.
@@ -62,50 +71,44 @@ export function ActionBar({
     : { allowed: false, reason: '', cost: 0, nextLabel: '' }
   const ownsAnything = ownedPropertyIds(state, player.id).length > 0
 
-  return (
-    <div className="actionbar">
-      {/* Jail is manual: nothing rolls for the player, they choose. */}
-      {inJail ? (
-        <>
-          <button
-            className="btn btn-primary"
-            onClick={() => dispatch({ type: 'JAIL_ROLL' })}
-          >
-            Roll ({player.jailRolls.length} of {state.settings.jail.escapeDieRolls} used) — need{' '}
-            {state.settings.jail.escapeTargetTotal}+
-          </button>
-          <button
-            className="btn btn-good"
-            onClick={() => dispatch({ type: 'JAIL_PAY' })}
-            disabled={player.cash < state.settings.jail.payToEscape}
-            title={
-              player.cash < state.settings.jail.payToEscape
-                ? `Needs ${money(state.settings.jail.payToEscape)} in cash.`
-                : undefined
-            }
-          >
-            Pay {money(state.settings.jail.payToEscape)} to the bank
-          </button>
-        </>
-      ) : null}
+  // Jail is manual: nothing rolls for the player, they choose.
+  const jailButtons = inJail ? (
+    <>
+      <button className="btn btn-primary" onClick={() => dispatch({ type: 'JAIL_ROLL' })}>
+        Roll ({player.jailRolls.length} of {state.settings.jail.escapeDieRolls} used) — need{' '}
+        {state.settings.jail.escapeTargetTotal}+
+      </button>
+      <button
+        className="btn btn-good"
+        onClick={() => dispatch({ type: 'JAIL_PAY' })}
+        disabled={player.cash < state.settings.jail.payToEscape}
+        title={
+          player.cash < state.settings.jail.payToEscape
+            ? `Needs ${money(state.settings.jail.payToEscape)} in cash.`
+            : undefined
+        }
+      >
+        Pay {money(state.settings.jail.payToEscape)} to the bank
+      </button>
+    </>
+  ) : null
 
-      {purchase && (
-        <>
-          <button className="btn btn-good" onClick={() => dispatch({ type: 'BUY_PROPERTY' })}>
-            Buy {displayNameOf(purchase.propertyId)} — {money(purchase.price)}
-          </button>
-          <button className="btn" onClick={() => dispatch({ type: 'DECLINE_PURCHASE' })}>
-            Don't buy
-          </button>
-        </>
-      )}
+  const purchaseButtons = purchase && (
+    <>
+      <button className="btn btn-good" onClick={() => dispatch({ type: 'BUY_PROPERTY' })}>
+        Buy {displayNameOf(purchase.propertyId)} — {money(purchase.price)}
+      </button>
+      <button className="btn" onClick={() => dispatch({ type: 'DECLINE_PURCHASE' })}>
+        Don't buy
+      </button>
+    </>
+  )
 
+  const buildButtons = (
+    <>
       {buildOffer && buildCheck.allowed && (
         <>
-          <button
-            className="btn btn-good"
-            onClick={() => onBuild(buildOffer.propertyId)}
-          >
+          <button className="btn btn-good" onClick={() => onBuild(buildOffer.propertyId)}>
             Build {buildCheck.nextLabel || 'house'}
             {buildCheck.cost ? ` — ${money(buildCheck.cost)}` : ''}
           </button>
@@ -119,37 +122,56 @@ export function ActionBar({
           Continue
         </button>
       )}
+    </>
+  )
 
-      {/*
-        Out of reach means out of reach. While an unaffordable country is on
-        offer the deeds screen is closed too, so there is no mortgage-something
-        -and-come-straight-back route to a purchase the player cannot afford.
-        Raising cash is still possible on any other turn, and always when a
-        debt has to be settled.
-      */}
-      {ownsAnything && (
-        <button className="btn" onClick={onManage} disabled={busy}>
-          Build / Sell / Mortgage
-        </button>
-      )}
+  /*
+    Out of reach means out of reach. While an unaffordable country is on
+    offer the deeds screen is closed too, so there is no mortgage-something
+    -and-come-straight-back route to a purchase the player cannot afford.
+    Raising cash is still possible on any other turn, and always when a
+    debt has to be settled.
+  */
+  const manageButton = ownsAnything && (
+    <button className="btn" onClick={onManage} disabled={busy}>
+      Build / Sell / Mortgage
+    </button>
+  )
 
-      {inDebt && (
-        <button
-          className="btn btn-good"
-          onClick={() => dispatch({ type: 'SETTLE_DEBT' })}
-          disabled={player.cash < owed}
-          title={
-            player.cash < owed
-              ? `Only ${money(player.cash)} in hand — raise the rest by mortgaging or selling.`
-              : undefined
-          }
-        >
-          Pay {money(owed)}
-        </button>
-      )}
+  const payButton = inDebt && (
+    <button
+      className="btn btn-good"
+      onClick={() => dispatch({ type: 'SETTLE_DEBT' })}
+      disabled={player.cash < owed}
+      title={
+        player.cash < owed
+          ? `Only ${money(player.cash)} in hand — raise the rest by mortgaging or selling.`
+          : undefined
+      }
+    >
+      Pay {money(owed)}
+    </button>
+  )
 
+  if (mode === 'decisions') {
+    return (
+      <>
+        {jailButtons}
+        {purchaseButtons}
+        {buildButtons}
+        {payButton}
+      </>
+    )
+  }
+
+  return (
+    <div className="actionbar">
+      {jailButtons}
+      {purchaseButtons}
+      {buildButtons}
+      {manageButton}
+      {payButton}
       {isHost && <HostControls {...{ onHouseRules, onRemovePlayer, onEndGame }} />}
-
       <div className="action-hint">{hintFor(state)}</div>
     </div>
   )
@@ -180,7 +202,7 @@ function HostControls({
   )
 }
 
-function hintFor(state: GameState): string {
+export function hintFor(state: GameState): string {
   if (state.paused) return 'Paused.'
   const player = currentPlayer(state)
   const owed = debtOwedBy(state, player.id)

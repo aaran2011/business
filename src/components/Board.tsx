@@ -1,4 +1,4 @@
-import { useEffect, useState, type CSSProperties, type ReactNode } from 'react'
+import type { CSSProperties, ReactNode } from 'react'
 import {
   BOARD,
   boardGridColumns,
@@ -6,14 +6,13 @@ import {
   cellRectFor,
   edgeFor,
   gridPositionFor,
-  TRACK_RATIO_MOBILE,
   TRACK_RATIO_SQUARE,
-  type TrackRatio,
+  type BoardSpaceDef,
 } from '../data/board'
 import { COUNTRIES } from '../data/properties'
 import { SPECIAL_ASSETS } from '../data/specialAssets'
 import { money } from '../engine/log'
-import type { GameState } from '../engine/types'
+import type { GameState, Holding, Player } from '../engine/types'
 import { BoardCentre } from './BoardCentre'
 import { BuildingRow } from './BuildingIcons'
 import { DiceTray } from './Dice'
@@ -85,6 +84,33 @@ function withBreak(name: string): string {
     .join(' ')
 }
 
+/**
+ * Everything a board needs to know about one space in order to draw it —
+ * what it is, who owns it, what stands on it.
+ *
+ * Shared by the square board here and by the phone board, so the two can
+ * never disagree about a space. They differ only in how they lay it out.
+ */
+export function describeSpace(state: GameState, space: BoardSpaceDef) {
+  const country = space.propertyId ? COUNTRIES[space.propertyId] : undefined
+  const asset = space.propertyId ? SPECIAL_ASSETS[space.propertyId] : undefined
+  const holding: Holding | undefined = space.propertyId
+    ? state.holdings[space.propertyId]
+    : undefined
+  const owner: Player | undefined = holding?.ownerId
+    ? state.players.find((p) => p.id === holding.ownerId)
+    : undefined
+  return {
+    country,
+    asset,
+    holding,
+    owner,
+    isCorner: space.index % 9 === 0,
+    /** The drawn icon for a non-country space, by asset id or by kind. */
+    glyph: asset ? asset.id : space.kind,
+  }
+}
+
 interface BoardProps {
   state: GameState
   rolling: boolean
@@ -119,7 +145,9 @@ export function Board({
   centreCard,
   turnName,
 }: BoardProps) {
-  const ratio = useTrackRatio()
+  // The square board is the only one this component draws. Phones get their
+  // own board (MobileBoard), laid out for a tall screen from the start.
+  const ratio = TRACK_RATIO_SQUARE
   const current = state.players.find((p) => p.id === state.turnOrder[state.currentIndex])
   const activeIndex = state.phase === 'playing' ? current?.position : undefined
 
@@ -135,13 +163,7 @@ export function Board({
         {BOARD.map((space) => {
           const { row, col } = gridPositionFor(space.index)
           const edge = edgeFor(space.index)
-          const country = space.propertyId ? COUNTRIES[space.propertyId] : undefined
-          const asset = space.propertyId ? SPECIAL_ASSETS[space.propertyId] : undefined
-          const holding = space.propertyId ? state.holdings[space.propertyId] : undefined
-          const owner = holding?.ownerId
-            ? state.players.find((p) => p.id === holding.ownerId)
-            : undefined
-          const isCorner = space.index % 9 === 0
+          const { country, asset, holding, owner, isCorner } = describeSpace(state, space)
           const rect = cellRectFor(space.index, ratio)
 
           return (
@@ -292,26 +314,4 @@ export function Board({
       </div>
     </div>
   )
-}
-
-/**
- * Which track thickness to lay the board out with.
- *
- * A phone gets the thicker ring. This is read once here and handed to both the
- * grid template and the token placement, so the two can never disagree about
- * where a space is.
- */
-function useTrackRatio(): TrackRatio {
-  const query = '(max-width: 820px)'
-  const [narrow, setNarrow] = useState(
-    () => typeof window !== 'undefined' && window.matchMedia(query).matches,
-  )
-  useEffect(() => {
-    const mql = window.matchMedia(query)
-    const onChange = () => setNarrow(mql.matches)
-    mql.addEventListener('change', onChange)
-    onChange()
-    return () => mql.removeEventListener('change', onChange)
-  }, [])
-  return narrow ? TRACK_RATIO_MOBILE : TRACK_RATIO_SQUARE
 }

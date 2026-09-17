@@ -4,6 +4,15 @@ import { COUNTRIES } from './data/properties'
 import { ActionBar } from './components/ActionBar'
 import { Board } from './components/Board'
 import { CashCelebration } from './components/CashCelebration'
+import { MobileBoard } from './components/MobileBoard'
+import {
+  LeaderboardSheet,
+  MobileHeader,
+  MobileLeaderboard,
+  MobileMoreSheet,
+  MobileTurnPanel,
+} from './components/MobileChrome'
+import { useIsMobile } from './components/useIsMobile'
 import { BuildOffer } from './components/BuildOffer'
 import { BuildWarning } from './components/BuildWarning'
 import { JailDice } from './components/Dice'
@@ -425,8 +434,93 @@ function PlayingView({
     />
   ) : null
 
+  /*
+    A phone held upright gets its own screen: a tall board and a compact header,
+    leaderboard and turn panel around it. Everything else — the square board,
+    its header and its action bar — renders exactly as before. Both boards are
+    handed the SAME props below, so they cannot show different games.
+  */
+  const isMobile = useIsMobile()
+  const [showMore, setShowMore] = useState(false)
+  const [showLeaderboard, setShowLeaderboard] = useState(false)
+  const canRoll = state.stage === 'awaitingRoll' && owed === 0 && !state.paused && canAct
+
+  const centreCard =
+    /*
+      One slot in the middle of the board. Jail first, then whatever
+      property the player has been asked about.
+
+      This is INFORMATION. The buttons all live in the bar at the
+      bottom of the screen, in one place, so nothing is offered twice.
+    */
+    state.stage === 'inJail' && !state.paused ? (
+      <div className="centre-card jail-card">
+        <div className="centre-card-head">
+          {/* The drawn bars, not the police-officer emoji: there is
+              no person anywhere in the board's artwork. */}
+          <span className="centre-card-icon">
+            <SpaceIcon name="jail" /> Jail
+          </span>
+        </div>
+        <div className="centre-card-body">
+          <div className="jail-who">
+            <span className="player-token" style={{ background: player.colourHex }}>
+              {player.name.charAt(0).toUpperCase()}
+            </span>
+            <strong>{player.name} is in Jail</strong>
+          </div>
+          <p className="jail-explain">
+            {canAct ? 'You are' : 'They are'} locked up and cannot move. Pay{' '}
+            {money(state.settings.jail.payToEscape)}, or roll one die up to{' '}
+            {state.settings.jail.escapeDieRolls} times and total{' '}
+            {state.settings.jail.escapeTargetTotal} or more. Either way the release lands
+            on {canAct ? 'your' : 'their'} next turn.
+          </p>
+          <JailDice
+            rolls={player.jailRolls}
+            slots={state.settings.jail.escapeDieRolls}
+            target={state.settings.jail.escapeTargetTotal}
+          />
+          {!canAct && (
+            <div className="jail-waiting">Waiting for {player.name} to choose.</div>
+          )}
+        </div>
+      </div>
+    ) : cardId && !state.paused ? (
+      <div className="centre-card">
+        <div className="centre-card-head">
+          <span>{buildOffer?.propertyId === cardId ? 'Your property' : 'Property'}</span>
+        </div>
+        <div className="centre-card-body">
+          {buildOffer?.propertyId === cardId && (
+            <BuildOffer state={state} playerId={player.id} propertyId={cardId} />
+          )}
+          <PropertyCard state={state} propertyId={cardId} />
+        </div>
+      </div>
+    ) : undefined
+
+  const boardProps = {
+    state,
+    rolling,
+    rollId,
+    centreStatus,
+    onRoll: () => dispatch({ type: 'ROLL_DICE' }),
+    canRoll,
+    rollPrompt: !canAct
+      ? seatName
+        ? `You are ${seatName}`
+        : ''
+      : state.stage === 'awaitingRoll' && owed === 0 && !state.paused
+        ? 'Tap the die to roll'
+        : 'Your turn',
+    dieColour: player.colourHex,
+    turnName: player.name,
+    centreCard,
+  }
+
   return (
-    <div className="app">
+    <div className={isMobile ? 'app app-mobile' : 'app'}>
       {/* Hidden bars still leave the way back: the button floats where the
           header was. */}
       {barsHidden && peekToggle}
@@ -440,7 +534,13 @@ function PlayingView({
         clock, not the host's. Only SETTING it is restricted, which the engine
         enforces too — `SET_TIMER` is refused from any device but the host's.
       */}
-      {!barsHidden && (
+      {!barsHidden && isMobile && (
+        <MobileHeader
+          onHouseRules={() => setShowHouseRules(true)}
+          onLeave={session.role !== 'solo' ? () => setConfirmLeave(true) : undefined}
+        />
+      )}
+      {!barsHidden && !isMobile && (
         <header className="topbar">
           {isHost && (
             <button className="btn btn-sm" onClick={() => setShowTimer(true)}>
@@ -499,88 +599,42 @@ function PlayingView({
         </div>
       )}
 
-      <div className="main">
-        <Board
-          state={state}
-          rolling={rolling}
-          rollId={rollId}
-          centreStatus={centreStatus}
-          onRoll={() => dispatch({ type: 'ROLL_DICE' })}
-          canRoll={state.stage === 'awaitingRoll' && owed === 0 && !state.paused && canAct}
-          rollPrompt={
-            !canAct
-              ? seatName
-                ? `You are ${seatName}`
-                : ''
-              : state.stage === 'awaitingRoll' && owed === 0 && !state.paused
-                ? 'Tap the die to roll'
-                : 'Your turn'
-          }
-          dieColour={player.colourHex}
-          turnName={player.name}
-          centreCard={
-            /*
-              One slot in the middle of the board. Jail first, then whatever
-              property the player has been asked about.
+      {isMobile ? (
+        <>
+          <MobileBoard {...boardProps} />
+          <MobileLeaderboard state={state} onViewAll={() => setShowLeaderboard(true)} />
+        </>
+      ) : (
+        <div className="main">
+          <Board {...boardProps} />
 
-              This is INFORMATION. The buttons all live in the bar at the
-              bottom of the screen, in one place, so nothing is offered twice.
-            */
-            state.stage === 'inJail' && !state.paused ? (
-              <div className="centre-card jail-card">
-                <div className="centre-card-head">
-                  {/* The drawn bars, not the police-officer emoji: there is
-                      no person anywhere in the board's artwork. */}
-                  <span className="centre-card-icon">
-                    <SpaceIcon name="jail" /> Jail
-                  </span>
-                </div>
-                <div className="centre-card-body">
-                  <div className="jail-who">
-                    <span className="player-token" style={{ background: player.colourHex }}>
-                      {player.name.charAt(0).toUpperCase()}
-                    </span>
-                    <strong>{player.name} is in Jail</strong>
-                  </div>
-                  <p className="jail-explain">
-                    {canAct ? 'You are' : 'They are'} locked up and cannot move. Pay{' '}
-                    {money(state.settings.jail.payToEscape)}, or roll one die up to{' '}
-                    {state.settings.jail.escapeDieRolls} times and total{' '}
-                    {state.settings.jail.escapeTargetTotal} or more. Either way the release lands
-                    on {canAct ? 'your' : 'their'} next turn.
-                  </p>
-                  <JailDice
-                    rolls={player.jailRolls}
-                    slots={state.settings.jail.escapeDieRolls}
-                    target={state.settings.jail.escapeTargetTotal}
-                  />
-                  {!canAct && (
-                    <div className="jail-waiting">Waiting for {player.name} to choose.</div>
-                  )}
-                </div>
-              </div>
-            ) : cardId && !state.paused ? (
-              <div className="centre-card">
-                <div className="centre-card-head">
-                  <span>{buildOffer?.propertyId === cardId ? 'Your property' : 'Property'}</span>
-                </div>
-                <div className="centre-card-body">
-                  {buildOffer?.propertyId === cardId && (
-                    <BuildOffer state={state} playerId={player.id} propertyId={cardId} />
-                  )}
-                  <PropertyCard state={state} propertyId={cardId} />
-                </div>
-              </div>
+          <div className="side-col">
+            <Leaderboard state={state} dispatch={dispatch} isHost={isHost} />
+          </div>
+        </div>
+      )}
+
+      {!barsHidden && isMobile && (
+        <MobileTurnPanel
+          state={state}
+          dispatch={dispatch}
+          canAct={canAct}
+          isHost={isHost}
+          reconnecting={reconnecting}
+          clock={
+            remainingMs !== null ? (
+              <span className={`clock mturn-clock${lowTime ? ' is-low' : ''}`}>
+                {formatClock(remainingMs)}
+              </span>
             ) : undefined
           }
+          canRoll={canRoll}
+          onRoll={() => dispatch({ type: 'ROLL_DICE' })}
+          onBuild={requestBuild}
+          onMore={() => setShowMore(true)}
         />
-
-        <div className="side-col">
-          <Leaderboard state={state} dispatch={dispatch} isHost={isHost} />
-        </div>
-      </div>
-
-      {!barsHidden && (
+      )}
+      {!barsHidden && !isMobile && (
         <ActionBar
           state={state}
           dispatch={dispatch}
@@ -646,6 +700,33 @@ function PlayingView({
 
       {showTimer && (
         <TimerModal state={state} dispatch={dispatch} onClose={() => setShowTimer(false)} />
+      )}
+
+      {isMobile && showMore && (
+        <MobileMoreSheet
+          state={state}
+          dispatch={dispatch}
+          canAct={canAct}
+          isHost={isHost}
+          hasCode={session.role !== 'solo'}
+          onClose={() => setShowMore(false)}
+          onManage={() => setShowManage(true)}
+          onHouseRules={() => setShowHouseRules(true)}
+          onTimer={() => setShowTimer(true)}
+          onCode={() => setShowCode(true)}
+          onRemovePlayer={() => setShowRemove(true)}
+          onEndGame={() => dispatch({ type: 'END_GAME' })}
+          onHideBars={() => setBarsHidden(true)}
+        />
+      )}
+
+      {isMobile && showLeaderboard && (
+        <LeaderboardSheet
+          state={state}
+          dispatch={dispatch}
+          isHost={isHost}
+          onClose={() => setShowLeaderboard(false)}
+        />
       )}
     </div>
   )

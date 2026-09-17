@@ -3,6 +3,22 @@ import { leaderboard } from '../engine/queries'
 import type { GameAction, GameState } from '../engine/types'
 
 /**
+ * The players in leaderboard order, richest first.
+ *
+ * A joined phone has not been sent everyone's cash, so it cannot rank them
+ * itself — the host does that and sends the order along with the game. Shared
+ * with the phone's compact leaderboard so both always agree on who is where.
+ */
+export function rankedRows(state: GameState) {
+  const ranked = leaderboard(state)
+  return state.leaderboardOrder
+    ? state.leaderboardOrder
+        .map((id) => ranked.find((r) => r.player.id === id))
+        .filter((r): r is (typeof ranked)[number] => Boolean(r))
+    : ranked
+}
+
+/**
  * The only player-facing roster kept on the game screen. Ranked by total
  * wealth, so an asset-rich, cash-poor player still shows near the top.
  * "Pause on Next Turn" sits on the right of the header.
@@ -17,14 +33,7 @@ export function Leaderboard({
   /** Pausing is the host's call, so the button is host-only. */
   isHost: boolean
 }) {
-  // A joined phone has not been sent everyone's cash, so it cannot rank them
-  // itself — the host does that and sends the order along with the game.
-  const ranked = leaderboard(state)
-  const rows = state.leaderboardOrder
-    ? state.leaderboardOrder
-        .map((id) => ranked.find((r) => r.player.id === id))
-        .filter((r): r is (typeof ranked)[number] => Boolean(r))
-    : ranked
+  const rows = rankedRows(state)
   const currentId = state.turnOrder[state.currentIndex]
   const pauseRequested = state.pauseRequested
 

@@ -11,7 +11,7 @@
  */
 
 /** One letter per colour, warm on the left running to cool on the right. */
-const WORDMARK: [string, string][] = [
+export const WORDMARK: [string, string][] = [
   ['B', '#ff8f8f'],
   ['U', '#ffb27a'],
   ['S', '#ffd16a'],
@@ -27,15 +27,25 @@ export function BoardCentre() {
     <>
       <CentrePattern />
       <div className="centrepiece" aria-hidden="true">
-        <div className="centre-wordmark">
-          {WORDMARK.map(([letter, colour], i) => (
-            <span key={i} style={{ color: colour }}>
-              {letter}
-            </span>
-          ))}
-        </div>
+        <Wordmark className="centre-wordmark" />
       </div>
     </>
+  )
+}
+
+/**
+ * BUSINESS, a colour per letter. One component, so the board's centre and the
+ * phone's header can never drift into two different palettes.
+ */
+export function Wordmark({ className }: { className: string }) {
+  return (
+    <div className={className}>
+      {WORDMARK.map(([letter, colour], i) => (
+        <span key={i} style={{ color: colour }}>
+          {letter}
+        </span>
+      ))}
+    </div>
   )
 }
 
