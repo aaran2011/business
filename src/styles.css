@@ -900,15 +900,15 @@ button:disabled {
   transform: translate(-50%, -50%);
   /* Smaller and lighter than they were: a marker of where somebody is, not
      a feature of the space they happen to be standing on. */
-  width: max(13px, 3.1cqi);
-  height: max(13px, 3.1cqi);
+  width: max(15px, 3.8cqi);
+  height: max(15px, 3.8cqi);
   border-radius: 50%;
   border: max(1.4px, 0.28cqi) solid #fff;
   box-shadow: 0 2px 6px rgba(20, 40, 80, 0.3);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: max(8.5px, 2cqi);
+  font-size: max(9.5px, 2.35cqi);
   font-weight: 900;
   color: #fff;
   letter-spacing: 0;
@@ -3359,7 +3359,8 @@ button:disabled {
   box-shadow: 0 8px 20px rgba(77, 126, 176, 0.08);
 }
 
-/* The panel's own surface, behind everything else in it. */
+/* The panel's own surface, behind everything else in it. Blue when there is
+   nobody to colour it for. */
 .dice-tint {
   position: absolute;
   inset: 0;
@@ -3367,6 +3368,61 @@ button:disabled {
   background: var(--player-panel-bg);
   pointer-events: none;
   z-index: 0;
+  transition: background 0.35s ease;
+}
+
+/*
+ * In play the panel is the colour of the player whose turn it is, and it
+ * changes as the turn passes (Dice.tsx sets --turn and data-ink). A gentle
+ * gradient on that colour so it reads as a surface, not a flat slab; the
+ * plain colour first, for any browser without color-mix().
+ */
+.dice-roller[data-ink] .dice-tint {
+  background: var(--turn);
+  background: linear-gradient(
+    150deg,
+    color-mix(in srgb, var(--turn) 80%, #fff) 0%,
+    var(--turn) 55%,
+    color-mix(in srgb, var(--turn) 85%, #000) 100%
+  );
+}
+
+.dice-roller[data-ink='white'] .turn-name {
+  color: #fff;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.22);
+}
+
+.dice-roller[data-ink='dark'] .turn-name {
+  color: var(--text);
+}
+
+.dice-roller[data-ink] .turn-name-dot {
+  border-color: #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+}
+
+.dice-roller[data-ink='white'] .dice-prompt {
+  color: rgba(255, 255, 255, 0.92);
+}
+
+/* "Tap the die to roll" keeps its orange, on a white pill so it reads on
+   every player's colour — orange straight onto red would vanish. */
+.dice-roller[data-ink] .dice-prompt.is-live {
+  align-self: center;
+  padding: 2px 10px;
+  border-radius: 999px;
+  background: #fff;
+  color: var(--accent);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
+}
+
+/* The card the die sits on stays light whatever the colour behind it. */
+.dice-roller[data-ink] .dice-hit {
+  background: rgba(255, 255, 255, 0.86);
+}
+
+.dice-roller[data-ink] .dice-hit.can-roll {
+  background: rgba(255, 255, 255, 0.95);
 }
 
 .dice-roller > *:not(.dice-tint) {
@@ -3908,7 +3964,8 @@ button:disabled {
 
 .mboard {
   container-type: inline-size;
-  --pawn: clamp(11px, 3.1cqi, 14px);
+  /* Player markers. Big enough to read the initial at a glance. */
+  --pawn: clamp(15px, 4.5cqi, 19px);
   position: relative;
   display: grid;
   /* Top row, the middle band, bottom row — the proportions of the design. */
@@ -4083,7 +4140,7 @@ button:disabled {
 }
 
 .mcell.is-corner .mcell-icon {
-  font-size: clamp(21px, 7.2cqi, 30px);
+  font-size: clamp(19px, 6.3cqi, 27px);
 }
 
 .mcell.m-left .mcell-icon,
@@ -4154,11 +4211,17 @@ button:disabled {
 /* UNO on a side column: the card beside the word, as drawn. */
 .mcell.is-inline .mcell-body {
   flex-direction: row;
-  gap: 5px;
+  gap: 3px;
+}
+
+/* Sized so card and word together fit inside the space's side padding,
+   clear of a player marker on the inner edge. */
+.mcell.is-inline .mcell-icon {
+  font-size: clamp(11px, 3.5cqi, 15px);
 }
 
 .mcell.is-inline .mcell-name {
-  --m-size: clamp(10px, 3.2cqi, 13px);
+  --m-size: clamp(9.5px, 2.9cqi, 12px);
   width: auto;
   font-weight: 800;
 }
@@ -4316,14 +4379,14 @@ button:disabled {
 .mcell-wrap.m-left > .mpawns {
   top: 0;
   bottom: 0;
-  right: calc(var(--pawn) * -0.5 - 1px);
+  right: calc(var(--pawn) * -0.6 - 1px);
   width: var(--pawn);
 }
 
 .mcell-wrap.m-right > .mpawns {
   top: 0;
   bottom: 0;
-  left: calc(var(--pawn) * -0.5 - 1px);
+  left: calc(var(--pawn) * -0.6 - 1px);
   width: var(--pawn);
 }
 
@@ -4334,30 +4397,37 @@ button:disabled {
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 1.5px solid #fff;
+  border: 2px solid #fff;
   border-radius: 50%;
   box-shadow: 0 1px 4px rgba(20, 40, 80, 0.32);
   color: #fff;
-  font-size: calc(var(--pawn) * 0.55);
+  font-size: calc(var(--pawn) * 0.56);
   font-weight: 800;
   line-height: 1;
+}
+
+/* Spread along the edge: a marker's width apart where the space allows,
+   squeezed to fit where it does not. 100% is the space's own width (rows)
+   or height (columns). */
+.mpawn {
+  --step: min(var(--pawn) * 0.95, (100% - var(--pawn)) / var(--gaps, 1));
 }
 
 .mcell-wrap.m-top .mpawn,
 .mcell-wrap.m-bottom .mpawn {
   top: 0;
-  left: calc(50% - var(--pawn) / 2 + var(--off, 0px));
+  left: calc(50% - var(--pawn) / 2 + (var(--i, 0) - var(--mid, 0)) * var(--step));
 }
 
 .mcell-wrap.m-left .mpawn,
 .mcell-wrap.m-right .mpawn {
   left: 0;
-  top: calc(50% - var(--pawn) / 2 + var(--off, 0px));
+  top: calc(50% - var(--pawn) / 2 + (var(--i, 0) - var(--mid, 0)) * var(--step));
 }
 
 .mpawn.is-current {
   box-shadow:
-    0 0 0 1.5px var(--active-orange),
+    0 0 0 2px var(--active-orange),
     0 1px 4px rgba(20, 40, 80, 0.32);
 }
 
@@ -4704,52 +4774,58 @@ button:disabled {
 /* ------------------------------------------------------------ turn panel */
 
 /*
- * Pinned to the foot of the screen. Most of the time the whole game fits and
- * this changes nothing; when a decision adds its row of buttons and the page
- * has to scroll, the buttons stay in reach instead of below the fold.
+ * Pinned to the foot of the screen. Most of the time it is only the menu
+ * button, sitting at the bottom right with nothing behind it. When the game
+ * asks something — buy, build, pay, Jail — it becomes a card with the
+ * answers, and stays in reach even if the page has had to scroll.
  */
 .mturn {
   position: sticky;
   bottom: max(8px, env(safe-area-inset-bottom));
   z-index: 20;
-  padding: 5px 6px 5px 14px;
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.mturn.has-decision {
+  padding: 6px;
   background: linear-gradient(180deg, #ffffff, #f6faff);
   border: 1px solid var(--m-line);
   border-radius: 18px;
-  box-shadow: 0 4px 14px rgba(28, 52, 92, 0.06);
+  box-shadow: 0 4px 14px rgba(28, 52, 92, 0.08);
 }
 
-.mturn-main {
+.mturn-actions {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.mturn-actions .btn {
+  flex: 1 1 auto;
+  justify-content: center;
+  min-height: 44px;
+  padding: 10px 12px;
+  font-size: 13px;
+}
+
+.mturn-tools {
   display: flex;
   align-items: center;
   gap: 8px;
-  min-height: 44px;
+  margin-left: auto;
 }
 
-.mturn-text {
-  flex: 1;
-  min-width: 0;
-}
-
-.mturn-title {
-  font-size: 14.5px;
-  font-weight: 800;
-  line-height: 1.2;
-  color: var(--m-ink);
-}
-
-.mturn-title.is-mine {
+.mturn-note {
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: var(--info-soft);
   color: var(--m-accent-blue);
-}
-
-.mturn-sub {
-  display: -webkit-box;
-  overflow: hidden;
-  font-size: 12.5px;
-  line-height: 1.3;
-  color: #5a6f93;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .mturn-clock {
@@ -4769,24 +4845,7 @@ button:disabled {
   border: 1px solid #dde8f6;
   border-radius: 13px;
   background: #fff;
-  box-shadow: 0 2px 6px rgba(28, 52, 92, 0.06);
-}
-
-.mturn-pips {
-  display: grid;
-  grid-template-columns: repeat(2, 7px);
-  gap: 7px;
-}
-
-.mturn-pips i {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--m-accent-blue);
-}
-
-.mturn-dice:disabled .mturn-pips i {
-  background: #b9c7dc;
+  box-shadow: 0 2px 6px rgba(28, 52, 92, 0.08);
 }
 
 .mturn-dots {
@@ -4799,23 +4858,6 @@ button:disabled {
   height: 4.5px;
   border-radius: 50%;
   background: #3d5a8a;
-}
-
-/* Buy, build, pay, Jail — the answers, full width under the status. */
-.mturn-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  margin-top: 8px;
-  padding-right: 6px;
-}
-
-.mturn-actions .btn {
-  flex: 1 1 auto;
-  justify-content: center;
-  min-height: 44px;
-  padding: 10px 12px;
-  font-size: 13px;
 }
 
 /* ---------------------------------------------------------------- sheets */

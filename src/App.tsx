@@ -628,8 +628,6 @@ function PlayingView({
               </span>
             ) : undefined
           }
-          canRoll={canRoll}
-          onRoll={() => dispatch({ type: 'ROLL_DICE' })}
           onBuild={requestBuild}
           onMore={() => setShowMore(true)}
         />

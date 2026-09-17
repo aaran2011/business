@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 import { money } from '../engine/log'
 import { currentPlayer, debtOwedBy, ownedPropertyIds } from '../engine/queries'
 import type { GameAction, GameState } from '../engine/types'
-import { ActionBar, hintFor } from './ActionBar'
+import { ActionBar } from './ActionBar'
 import { Wordmark } from './BoardCentre'
 import { Leaderboard, rankedRows } from './Leaderboard'
 
@@ -199,6 +199,14 @@ export function LeaderboardSheet({
 
 // ------------------------------------------------------------- turn panel --
 
+/**
+ * The foot of the phone screen: the answers to whatever the game is asking,
+ * and the "more" menu.
+ *
+ * No status line and no second dice button — whose turn it is and the roll
+ * both live in the middle of the board already. When nothing needs answering
+ * this is just the menu button, at the bottom right.
+ */
 export function MobileTurnPanel({
   state,
   dispatch,
@@ -206,8 +214,6 @@ export function MobileTurnPanel({
   isHost,
   reconnecting,
   clock,
-  canRoll,
-  onRoll,
   onBuild,
   onMore,
 }: {
@@ -218,27 +224,11 @@ export function MobileTurnPanel({
   reconnecting: boolean
   /** The running game clock, when there is one. */
   clock?: ReactNode
-  canRoll: boolean
-  onRoll: () => void
   onBuild: (propertyId: string) => void
   onMore: () => void
 }) {
   if (state.phase !== 'playing') return null
   const player = currentPlayer(state)
-
-  let title: string
-  let sub: string
-  if (state.paused) {
-    title = 'Paused'
-    sub = 'The game is paused.'
-  } else if (!canAct) {
-    title = 'Not your turn'
-    sub = `${player.name} is playing — wait for your go.`
-  } else {
-    title = 'Your turn'
-    sub = hintFor(state)
-  }
-  if (reconnecting) sub = 'Reconnecting…'
 
   // Exactly the conditions ActionBar uses to show a decision, so the button
   // row appears when — and only when — there is something to answer.
@@ -252,36 +242,6 @@ export function MobileTurnPanel({
 
   return (
     <section className={`mturn${hasDecision ? ' has-decision' : ''}`}>
-      <div className="mturn-main">
-        <div className="mturn-text">
-          <div className={`mturn-title${canAct && !state.paused ? ' is-mine' : ''}`}>{title}</div>
-          <div className="mturn-sub" title={sub}>
-            {sub}
-          </div>
-        </div>
-        {clock}
-        <button
-          className="mturn-btn mturn-dice"
-          onClick={canRoll ? onRoll : undefined}
-          disabled={!canRoll}
-          aria-label="Roll the die"
-        >
-          <span className="mturn-pips" aria-hidden="true">
-            <i />
-            <i />
-            <i />
-            <i />
-          </span>
-        </button>
-        <button className="mturn-btn mturn-more" onClick={onMore} aria-label="More">
-          <span className="mturn-dots" aria-hidden="true">
-            <i />
-            <i />
-            <i />
-          </span>
-        </button>
-      </div>
-
       {hasDecision && (
         <div className="mturn-actions">
           <ActionBar
@@ -298,6 +258,18 @@ export function MobileTurnPanel({
           />
         </div>
       )}
+      <div className="mturn-tools">
+        {/* Said while it is happening, rather than dropping anyone out. */}
+        {reconnecting && <span className="mturn-note">Reconnecting…</span>}
+        {clock}
+        <button className="mturn-btn mturn-more" onClick={onMore} aria-label="More">
+          <span className="mturn-dots" aria-hidden="true">
+            <i />
+            <i />
+            <i />
+          </span>
+        </button>
+      </div>
     </section>
   )
 }

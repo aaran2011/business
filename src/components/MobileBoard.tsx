@@ -304,7 +304,7 @@ function MobileCell({
         )}
       </div>
 
-      {players.length > 0 && <Pawns players={players} side={side} currentId={currentId} />}
+      {players.length > 0 && <Pawns players={players} currentId={currentId} />}
     </div>
   )
 }
@@ -319,18 +319,11 @@ function MobileCell({
  * and so cannot be mistaken for one. Several players on one space overlap a
  * little rather than growing the space.
  */
-function Pawns({
-  players,
-  side,
-  currentId,
-}: {
-  players: Player[]
-  side: Side
-  currentId?: string
-}) {
+function Pawns({ players, currentId }: { players: Player[]; currentId?: string }) {
   const n = players.length
-  // Tighter as they multiply, so six still fit a narrow space.
-  const step = n <= 1 ? 0 : Math.min(9, (side === 'top' || side === 'bottom' ? 16 : 32) / (n - 1))
+  // Where each marker sits along the edge is worked out in CSS from these
+  // three numbers and the space's own size: side by side where there is
+  // room, overlapping just enough where there is not.
   return (
     <span className="mpawns" aria-hidden="true">
       {players.map((player, i) => (
@@ -340,7 +333,9 @@ function Pawns({
           style={
             {
               background: player.colourHex,
-              '--off': `${(i - (n - 1) / 2) * step}px`,
+              '--i': i,
+              '--mid': (n - 1) / 2,
+              '--gaps': Math.max(1, n - 1),
               zIndex: player.id === currentId ? 3 : 1,
             } as CSSProperties
           }

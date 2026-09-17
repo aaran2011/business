@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useRef, type CSSProperties } from 'react'
 
 /**
  * Physical-feeling dice.
@@ -144,6 +144,26 @@ export function Die({ value, rolling, rollId, durationMs, colour }: DieProps) {
 }
 
 /**
+ * Whether a colour is light enough to need dark lettering on top of it.
+ * Relative luminance, as WCAG defines it; amber and emerald come out light,
+ * crimson, azure, violet and slate dark.
+ */
+function isLight(hex: string): boolean {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex)
+  if (!m) return false
+  const n = parseInt(m[1], 16)
+  const channel = (v: number) => {
+    const c = v / 255
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
+  }
+  const lum =
+    0.2126 * channel((n >> 16) & 255) +
+    0.7152 * channel((n >> 8) & 255) +
+    0.0722 * channel(n & 255)
+  return lum > 0.3
+}
+
+/**
  * Renders however many movement dice the settings call for, always with the
  * rolled number spelled out beside them so the result is never ambiguous.
  */
@@ -206,11 +226,17 @@ export function DiceTray({
 
   return (
     /*
-      The panel is blue and stays blue. Whose turn it is shows in the dot
-      beside the name and in the pips on the die — colouring the panel itself
-      turned the middle of the board into one player's slab.
+      The panel wears the colour of whoever's turn it is — red for a red
+      player, green for a green one — changing as the turn passes. `data-ink`
+      says whether the lettering on it should be white or dark, so the name
+      stays readable on amber as well as on crimson. With no player (the
+      opening screens) it falls back to the calm blue.
     */
-    <div className="dice-roller">
+    <div
+      className="dice-roller"
+      data-ink={colour ? (isLight(colour) ? 'dark' : 'white') : undefined}
+      style={colour ? ({ '--turn': colour } as CSSProperties) : undefined}
+    >
       <span className="dice-tint" aria-hidden="true" />
       {turnName && (
         <div className="turn-name">
