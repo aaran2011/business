@@ -3,6 +3,7 @@ import { BOARD } from './data/board'
 import { COUNTRIES } from './data/properties'
 import { ActionBar } from './components/ActionBar'
 import { Board } from './components/Board'
+import { AuctionPanel } from './components/AuctionPanel'
 import { CashCelebration } from './components/CashCelebration'
 import { MobileBoard } from './components/MobileBoard'
 import { MoneyCard, useMoneyCards } from './components/MoneyCard'
@@ -27,12 +28,19 @@ import { PropertyCard } from './components/PropertyCard'
 import { RemovePlayerModal } from './components/RemovePlayerModal'
 import { ResultsScreen } from './components/ResultsScreen'
 import { SetupScreen } from './components/SetupScreen'
+import { HomeScreen, type PlayMode } from './components/HomeScreen'
+import { LoginScreen } from './components/LoginScreen'
+import { ProfileModal } from './components/ProfileModal'
+import { clearProfile, loadProfile, type Profile } from './net/accounts'
+import { PLAYER_COLOURS } from './data/playerColours'
 import { PauseOverlay, TimerModal } from './components/TimerModal'
 import { JoinPanel } from './components/JoinPanel'
 import { useSession } from './net/useSession'
 import { play, startAudio } from './audio/sound'
 import { GameCodeModal } from './components/GameCodeModal'
 import { LeaveConfirm } from './components/LeaveConfirm'
+import { auctionExpired } from './engine/auction'
+import { computerAction } from './engine/computer'
 import { maskCashExcept } from './net/protocol'
 import { money } from './engine/log'
 import { debtOwedBy, displayNameOf, hasCompleteColourGroup } from './engine/queries'
@@ -45,6 +53,18 @@ export default function App() {
   const { state } = session
   const dispatch = session.dispatch
   const [showJoin, setShowJoin] = useState(false)
+  /**
+   * Who is playing on this device. Remembered between visits, so the gallery
+   * and the password are asked for once rather than every time.
+   */
+  const [profile, setProfile] = useState<Profile | null>(() => loadProfile())
+  const [showProfile, setShowProfile] = useState(false)
+  /**
+   * Which of the three ways this device is playing — chosen on the front door,
+   * null while still standing on it. It is about THIS device (who answers for
+   * the seats), not about the game, so it is not in the shared state.
+   */
+  const [playMode, setPlayMode] = useState<PlayMode | null>(null)
 
   /**
    * A window on the live game, for development only. Testing multiplayer means
@@ -183,6 +203,79 @@ export default function App() {
     isGuest,
   ])
 
+  /**
+   * The bidding clock belongs to the device running the game.
+   *
+   * Every device counts down for itself so the number on screen is right, but
+   * only one of them may say the time is up, or six phones would race to close
+   * the same auction. The host watches its own deadline and sends
+   * CLOSE_AUCTION once; the engine ignores a second one.
+   */
+  const auctionSeq = state.auction?.bidSeq ?? 0
+  const auctionEndsAt = state.auction?.endsAt ?? null
+  useEffect(() => {
+    if (isGuest) return
+    if (state.phase !== 'playing' || state.stage !== 'bidding' || !state.auction) return
+    if (state.paused || auctionEndsAt === null) return
+
+    const close = () => {
+      if (auctionExpired(state, Date.now())) dispatch({ type: 'CLOSE_AUCTION' })
+    }
+    // A touch past the deadline, so a device whose clock shows 1 has had its
+    // last chance to land a bid.
+    const timer = window.setTimeout(close, Math.max(0, auctionEndsAt - Date.now()) + 120)
+    return () => window.clearTimeout(timer)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isGuest, state.phase, state.stage, state.paused, auctionSeq, auctionEndsAt])
+
+  /**
+   * Computer players.
+   *
+   * Answered by the device running the game and nowhere else, so a seat is
+   * never played twice. It picks ONE action and sends it; the state that comes
+   * back brings the effect round again for the next one, which keeps the
+   * machine on the same path through the rules as a person tapping buttons.
+   *
+   * The pause between moves is the point: a computer that bought, built and
+   * ended its turn in the same frame would leave the table with nothing to
+   * watch and no idea what had happened.
+   */
+  const computerSeats = state.players
+    .filter((p) => p.isComputer && !p.isOut)
+    .map((p) => p.id)
+    .join(',')
+  useEffect(() => {
+    if (isGuest || !computerSeats) return
+    if (state.phase !== 'playing' && state.phase !== 'orderRoll') return
+    if (state.paused) return
+
+    for (const playerId of computerSeats.split(',')) {
+      const action = computerAction(state, playerId)
+      if (!action) continue
+      // Bidding is on a five-second clock, so it answers quickly there and
+      // takes its time everywhere else.
+      const delay = state.stage === 'bidding' ? 700 + Math.random() * 900 : 900
+      const timer = window.setTimeout(() => dispatch(action), delay)
+      return () => window.clearTimeout(timer)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    isGuest,
+    computerSeats,
+    state.phase,
+    state.stage,
+    state.paused,
+    state.turnNumber,
+    state.rollSeq,
+    state.currentIndex,
+    auctionSeq,
+    state.pendingPurchase?.propertyId,
+    state.pendingBuild?.propertyId,
+    state.moneyToAck?.length,
+    state.orderRolls.filter((r) => r.dice !== null).length,
+    state.players.find((pl) => pl.id === state.turnOrder[state.currentIndex])?.jailRolls.length,
+  ])
+
   // Game timer countdown.
   useEffect(() => {
     const { endsAt, remainingMs: frozen } = state.timer
@@ -199,6 +292,52 @@ export default function App() {
     const timer = window.setInterval(tick, 250)
     return () => window.clearInterval(timer)
   }, [state.timer, state.phase])
+
+  /**
+   * Set the game up for the way it is about to be played.
+   *
+   * The host's own seat takes the name and character from the profile, so
+   * nobody has to type their name twice. Playing against the computer starts
+   * with one opponent already there, because an empty lobby with a "+ Computer"
+   * button is a puzzle rather than a game.
+   */
+  const startGameSetup = useCallback(
+    (mode: PlayMode) => {
+      if (!profile) return
+      if (mode === 'online') session.startHosting()
+
+      const existing = state.lobby.find((e) => e.isHost)
+      if (existing) {
+        act({
+          type: 'UPDATE_LOBBY_PLAYER',
+          id: existing.id,
+          name: existing.name || profile.username,
+          avatarId: profile.avatarId,
+        })
+      } else {
+        act({
+          type: 'ADD_LOBBY_PLAYER',
+          id: 'host',
+          name: profile.username,
+          colourId: PLAYER_COLOURS[0].id,
+          isHost: true,
+          avatarId: profile.avatarId,
+        })
+      }
+
+      if (mode === 'computer') {
+        act({
+          type: 'ADD_LOBBY_PLAYER',
+          id: `cpu-${Date.now().toString(36)}`,
+          name: 'Computer 1',
+          colourId: PLAYER_COLOURS[1].id,
+          isComputer: true,
+          avatarId: 'panda',
+        })
+      }
+    },
+    [act, profile, session, state.lobby],
+  )
 
   /**
    * What this device is allowed to SHOW. Balances belong to whoever is playing
@@ -246,14 +385,78 @@ export default function App() {
     )
   }
 
-  if (showJoin && !seatedGuest) {
-    return <JoinPanel session={{ ...session, dispatch: act }} onBack={() => setShowJoin(false)} />
+  /*
+    Nobody plays anonymously: a character and a name come first, and they are
+    remembered on this device from then on. Signing in is not a gate, though —
+    "No account" is on the same screen and the whole game works through it.
+  */
+  if (!profile) {
+    return <LoginScreen onSignedIn={setProfile} />
   }
+
+  if (showProfile) {
+    return (
+      <ProfileModal
+        profile={profile}
+        onSaved={(next) => {
+          setProfile(next)
+          setShowProfile(false)
+          // The seat already in the lobby takes the new character with it.
+          const mine = state.lobby.find((e) => session.controlsPlayer(e.id))
+          if (mine) {
+            if (session.role === 'guest') session.editMe({ avatarId: next.avatarId })
+            else act({ type: 'UPDATE_LOBBY_PLAYER', id: mine.id, avatarId: next.avatarId })
+          }
+        }}
+        onClose={() => setShowProfile(false)}
+      />
+    )
+  }
+
+  if (showJoin && !seatedGuest) {
+    return (
+      <JoinPanel
+        session={{ ...session, dispatch: act }}
+        profile={profile}
+        onBack={() => setShowJoin(false)}
+      />
+    )
+  }
+
+  /*
+    The front door. A guest never sees it — they came in through a code, and
+    the host chose how the game is played.
+  */
+  if (state.phase === 'setup' && playMode === null && !isGuest) {
+    return (
+      <HomeScreen
+        state={state}
+        dispatch={act}
+        profile={profile}
+        multiplayerAvailable={session.multiplayerAvailable}
+        onChoose={(mode) => {
+          setPlayMode(mode)
+          startGameSetup(mode)
+        }}
+        onJoin={() => setShowJoin(true)}
+        onEditProfile={() => setShowProfile(true)}
+        onSignOut={() => {
+          clearProfile()
+          setProfile(null)
+        }}
+      />
+    )
+  }
+
   if (state.phase === 'setup') {
     return (
       <SetupScreen
         session={{ ...session, dispatch: act }}
+        profile={profile}
+        playMode={playMode}
         onJoinInstead={() => setShowJoin(true)}
+        onBack={() => setPlayMode(null)}
+        onEditProfile={() => setShowProfile(true)}
       />
     )
   }
@@ -364,6 +567,9 @@ function PlayingView({
 
   const centreStatus = useMemo(() => {
     if (state.paused) return 'Paused.'
+    if (state.stage === 'bidding' && state.auction) {
+      return `${displayNameOf(state.auction.propertyId)} is up for auction.`
+    }
     if (state.stage === 'moving') return 'Moving…'
     if (state.stage === 'inJail') return `${player.name} is in Jail.`
     if (!canAct && (state.moneyToAck ?? []).some((a) => a.playerId === player.id)) {
@@ -694,6 +900,15 @@ function PlayingView({
           dispatch={dispatch}
           onClose={() => setShowRemove(false)}
         />
+      )}
+
+      {/*
+        The auction, in bid mode only. It is not one of the dialogs above: it
+        has no × and cannot be dismissed, because the card is being sold
+        whether or not this device joins in. It goes when the bidding settles.
+      */}
+      {state.stage === 'bidding' && state.auction && (
+        <AuctionPanel state={state} dispatch={dispatch} controlsPlayer={controlsPlayer} />
       )}
 
       {showCode && <GameCodeModal session={session} onClose={() => setShowCode(false)} />}

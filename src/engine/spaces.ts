@@ -14,6 +14,7 @@ import { addLog, money, notify, notifyMoney, notifyTransfer } from './log'
 import { moveDirectlyTo } from './movement'
 import { charge, credit, transferMoney } from './payments'
 import {
+  biddingGame,
   countCountriesOwned,
   countHotels,
   countHouses,
@@ -104,11 +105,20 @@ export function handlePropertyLanding(
   const player = getPlayer(state, playerId)
 
   if (!holding.ownerId) {
-    // Unowned. Offer it only if they can actually pay: a decision card for
-    // something out of reach is a question with one answer, so the turn just
-    // carries on instead. Never auto-auction.
     const price = purchasePriceOf(propertyId)
-    if (player.cash >= price) {
+    /*
+      In the CLASSIC game, unowned means offered — but only if they can
+      actually pay. A decision card for something out of reach is a question
+      with one answer, so the turn just carries on instead. Never
+      auto-auction: that is a Monopoly rule and this game does not have it.
+
+      In BID mode the offer is always made, affordable or not, because the
+      answer no longer only concerns the player who landed. Buy opens the
+      bidding at the printed price, skip opens it with nothing bid, and either
+      way the rest of the table gets its go — so a player who cannot afford
+      the price still has to say whether to put it up.
+    */
+    if (player.cash >= price || biddingGame(state)) {
       state.pendingPurchase = { propertyId, price }
       state.stage = 'awaitingPurchase'
     } else {
@@ -158,23 +168,39 @@ export function handlePropertyLanding(
 
 /** Complete a purchase the player has accepted. */
 export function buyProperty(state: GameState, playerId: string, propertyId: string): boolean {
+  return buyPropertyAt(state, playerId, propertyId, purchasePriceOf(propertyId))
+}
+
+/**
+ * Hand over a card for a given amount.
+ *
+ * The amount is the printed price for an ordinary purchase, and the winning
+ * bid when the game is played with bidding. Nothing else differs: the money
+ * goes to the Bank either way, and no printed value is touched.
+ */
+export function buyPropertyAt(
+  state: GameState,
+  playerId: string,
+  propertyId: string,
+  amount: number,
+): boolean {
   const holding = state.holdings[propertyId]
   if (holding.ownerId) return false
 
-  const price = purchasePriceOf(propertyId)
   const player = getPlayer(state, playerId)
-  if (player.cash < price) return false
+  if (amount <= 0 || player.cash < amount) return false
 
-  transferMoney(state, playerId, null, price, `bought ${displayNameOf(propertyId)}`)
+  transferMoney(state, playerId, null, amount, `bought ${displayNameOf(propertyId)}`)
   holding.ownerId = playerId
 
   addLog(
     state,
     'property',
-    `${player.name} purchased ${displayNameOf(propertyId)} for ${money(price)}.`,
+    `${player.name} purchased ${displayNameOf(propertyId)} for ${money(amount)}.`,
   )
   // The other phones are told WHAT was bought, never for how much and never
-  // the card itself. That is the buyer's business.
+  // the card itself. That is the buyer's business. (An auction is the one
+  // exception, and it announces its own winning price — see closeAuction.)
   notify(state, playerId, `${player.name} bought ${displayNameOf(propertyId)}.`)
   return true
 }

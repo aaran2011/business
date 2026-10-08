@@ -240,6 +240,10 @@ export function hintFor(state: GameState): string {
       const { payToEscape, escapeDieRolls, escapeTargetTotal } = state.settings.jail
       return `${player.name} is in Jail. Roll one die ${escapeDieRolls} times and total ${escapeTargetTotal}+, or pay ${money(payToEscape)} — either way they get out on their next turn.`
     }
+    case 'bidding':
+      return state.auction
+        ? `${displayNameOf(state.auction.propertyId)} is up for auction — anybody may bid.`
+        : ''
     case 'awaitingEndTurn':
       return 'Ending the turn…'
     default:

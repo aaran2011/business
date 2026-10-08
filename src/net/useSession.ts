@@ -61,8 +61,8 @@ export interface Session {
   multiplayerAvailable: boolean
   startHosting: () => void
   joinGame: (code: string) => void
-  addMe: (name: string, colourId: string) => void
-  editMe: (patch: { name?: string; colourId?: string }) => void
+  addMe: (name: string, colourId: string, avatarId?: string) => void
+  editMe: (patch: { name?: string; colourId?: string; avatarId?: string }) => void
   leave: () => void
   /**
    * Walk away from a game in progress: take this device's player out of the
@@ -205,6 +205,7 @@ export function useSession(): Session {
           id,
           name: message.name,
           colourId: message.colourId,
+          avatarId: message.avatarId,
         })
         return
       }
@@ -217,6 +218,7 @@ export function useSession(): Session {
           id: seat,
           name: message.name,
           colourId: message.colourId,
+          avatarId: message.avatarId,
         })
         return
       }
@@ -499,12 +501,14 @@ export function useSession(): Session {
   }, [status])
 
   const addMe = useCallback(
-    (name: string, colourId: string) => send({ t: 'addMe', deviceId: me, name, colourId }),
+    (name: string, colourId: string, avatarId?: string) =>
+      send({ t: 'addMe', deviceId: me, name, colourId, avatarId }),
     [me, send],
   )
 
   const editMe = useCallback(
-    (patch: { name?: string; colourId?: string }) => send({ t: 'editMe', deviceId: me, ...patch }),
+    (patch: { name?: string; colourId?: string; avatarId?: string }) =>
+      send({ t: 'editMe', deviceId: me, ...patch }),
     [me, send],
   )
 

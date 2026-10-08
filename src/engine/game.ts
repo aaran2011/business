@@ -7,6 +7,15 @@
 import { BOARD, PURCHASABLE_SPACES, START_INDEX } from '../data/board'
 import { PLAYER_COLOURS } from '../data/playerColours'
 import { DEFAULT_SETTINGS, type GameSettings } from '../data/settings'
+import {
+  biddingGame,
+  closeAuction,
+  dropBidderFromAuction,
+  freezeAuctionClock,
+  openAuction,
+  placeBid,
+  thawAuctionClock,
+} from './auction'
 import { buildOneStep, sellBuilding } from './building'
 import { diceTotal, rollDice } from './dice'
 import { attemptJailEscape, openJailDoorIfEarned, payToEscapeJail } from './jail'
@@ -61,6 +70,7 @@ export function createInitialState(settings: GameSettings = DEFAULT_SETTINGS): G
     pendingMove: null,
     pendingPurchase: null,
     pendingBuild: null,
+    auction: null,
     debts: {},
     orderRolls: [],
     orderContenders: [],
@@ -97,9 +107,9 @@ function apply(state: GameState, action: GameAction): void {
     case 'START_GAME':
       return startGame(state)
     case 'ADD_LOBBY_PLAYER':
-      return addLobbyPlayer(state, action.id, action.name, action.colourId, action.isHost ?? false)
+      return addLobbyPlayer(state, action)
     case 'UPDATE_LOBBY_PLAYER':
-      return updateLobbyPlayer(state, action.id, action.name, action.colourId)
+      return updateLobbyPlayer(state, action.id, action.name, action.colourId, action.avatarId)
     case 'REMOVE_LOBBY_PLAYER':
       state.lobby = state.lobby.filter((e) => e.id !== action.id)
       return
@@ -117,6 +127,11 @@ function apply(state: GameState, action: GameAction): void {
       return acceptPurchase(state)
     case 'DECLINE_PURCHASE':
       return declinePurchase(state)
+    case 'PLACE_BID':
+      placeBid(state, action.playerId, action.amount, Date.now())
+      return
+    case 'CLOSE_AUCTION':
+      return finishAuction(state)
     case 'BUILD':
       return buildAction(state, action.propertyId)
     case 'DECLINE_BUILD':
@@ -198,6 +213,9 @@ function resume(state: GameState): void {
     state.timer.endsAt = Date.now() + state.timer.remainingMs
     state.timer.remainingMs = null
   }
+  // An auction paused with two seconds left starts again with two seconds
+  // left, not with a fresh five.
+  thawAuctionClock(state, Date.now())
   addLog(state, 'system', 'Game resumed.')
 }
 
@@ -209,6 +227,7 @@ function pauseNow(state: GameState): void {
     state.timer.remainingMs = Math.max(0, state.timer.endsAt - Date.now())
     state.timer.endsAt = null
   }
+  freezeAuctionClock(state, Date.now())
   addLog(state, 'system', 'Game paused.')
 }
 
@@ -232,6 +251,7 @@ function timeUp(state: GameState): void {
   state.timer.endsAt = null
   state.timer.remainingMs = 0
   state.notices = []
+  state.auction = null
 
   // The winner on time is the player with the greatest total wealth.
   const ranked = leaderboard(state)
@@ -251,6 +271,7 @@ function endGameNow(state: GameState): void {
   state.phase = 'ended'
   state.timer.endsAt = null
   state.notices = []
+  state.auction = null
 
   const ranked = leaderboard(state)
   state.winnerId = ranked[0]?.player.id ?? null
@@ -288,6 +309,9 @@ function removePlayer(state: GameState, playerId: string): void {
   if (!target || target.isOut) return
 
   const wasTheirTurn = state.turnOrder[state.currentIndex] === playerId
+  // Their bids go with them, so nobody is left bidding against a player who
+  // is no longer in the game.
+  dropBidderFromAuction(state, playerId)
   removePlayerFromGame(state, playerId)
 
   checkGameOver(state)
@@ -304,20 +328,19 @@ function removePlayer(state: GameState, playerId: string): void {
  */
 function addLobbyPlayer(
   state: GameState,
-  id: string,
-  name: string,
-  colourId: string,
-  isHost: boolean,
+  entry: Extract<GameAction, { type: 'ADD_LOBBY_PLAYER' }>,
 ): void {
   if (state.phase !== 'setup') return
   if (state.lobby.length >= state.settings.maxPlayers) return
-  if (state.lobby.some((e) => e.id === id)) return
+  if (state.lobby.some((e) => e.id === entry.id)) return
 
   state.lobby.push({
-    id,
-    name: name.trim() || `Player ${state.lobby.length + 1}`,
-    colourId: freeColourId(state, colourId),
-    isHost,
+    id: entry.id,
+    name: entry.name.trim() || `Player ${state.lobby.length + 1}`,
+    colourId: freeColourId(state, entry.colourId),
+    isHost: entry.isHost ?? false,
+    isComputer: entry.isComputer ?? false,
+    avatarId: entry.avatarId,
   })
 }
 
@@ -326,12 +349,14 @@ function updateLobbyPlayer(
   id: string,
   name?: string,
   colourId?: string,
+  avatarId?: string,
 ): void {
   if (state.phase !== 'setup') return
   const entry = state.lobby.find((e) => e.id === id)
   if (!entry) return
   if (name !== undefined) entry.name = name
   if (colourId !== undefined) entry.colourId = freeColourId(state, colourId, id)
+  if (avatarId !== undefined) entry.avatarId = avatarId
 }
 
 /** Two players may not share a colour, so fall back to the next free one. */
@@ -371,6 +396,8 @@ function startGame(state: GameState): void {
       jailReleasePending: false,
       isOut: false,
       seat,
+      isComputer: entry.isComputer ?? false,
+      avatarId: entry.avatarId,
     }
   })
 
@@ -591,8 +618,33 @@ function completeMove(state: GameState): void {
 function acceptPurchase(state: GameState): void {
   if (state.stage !== 'awaitingPurchase' || !state.pendingPurchase) return
   const player = currentPlayer(state)
-  buyProperty(state, player.id, state.pendingPurchase.propertyId)
+  const { propertyId, price } = state.pendingPurchase
+
+  /*
+    In BID mode, saying buy is not a purchase — it is the opening bid at the
+    printed price, and the rest of the table may now outbid it. That is Aaran's
+    rule for the mode, in his words: "When I click buy then other players can
+    bid also."
+  */
+  if (biddingGame(state)) {
+    if (player.cash < price) return
+    openAuction(state, propertyId, price, player.id, player.id, Date.now())
+    return
+  }
+
+  buyProperty(state, player.id, propertyId)
   state.pendingPurchase = null
+  state.stage = 'awaitingEndTurn'
+}
+
+/**
+ * The bidding clock has run out: settle the card and carry on with the turn.
+ *
+ * Only ever sent by the device running the game, which owns the clock.
+ */
+function finishAuction(state: GameState): void {
+  if (state.stage !== 'bidding' || !state.auction) return
+  closeAuction(state)
   state.stage = 'awaitingEndTurn'
 }
 
@@ -626,7 +678,19 @@ function declineBuild(state: GameState): void {
 
 function declinePurchase(state: GameState): void {
   if (state.stage !== 'awaitingPurchase' || !state.pendingPurchase) return
-  const { propertyId } = state.pendingPurchase
+  const { propertyId, price } = state.pendingPurchase
+
+  /*
+    In BID mode, skipping does not end it. His decision, 2026-10-09: "If anyone
+    else wants to buy it or bid for it, they can do it, and it is not just for
+    Malaysia. It is for every country." So the card goes to the table with
+    nothing bid, and the first bid may be no lower than the printed price.
+  */
+  if (biddingGame(state)) {
+    openAuction(state, propertyId, price, currentPlayer(state).id, null, Date.now())
+    return
+  }
+
   addLog(
     state,
     'property',
@@ -654,7 +718,10 @@ function endTurn(state: GameState): void {
   if (
     state.stage === 'moving' ||
     state.stage === 'awaitingPurchase' ||
-    state.stage === 'awaitingBuild'
+    state.stage === 'awaitingBuild' ||
+    // An auction belongs to the whole table, so it outlasts the turn that
+    // opened it. Nothing moves on until the card is settled.
+    state.stage === 'bidding'
   ) {
     return
   }
@@ -681,6 +748,7 @@ function advanceToNextPlayer(state: GameState): void {
     state.pendingMove = null
     state.pendingPurchase = null
     state.pendingBuild = null
+    state.auction = null
     // A player who earned their release last turn walks free now. Anybody
     // still in gets a clean sheet of three rolls for this turn.
     openJailDoorIfEarned(state, candidate.id)
@@ -735,6 +803,7 @@ function checkGameOver(state: GameState): void {
   state.phase = 'gameOver'
   state.winnerId = remaining[0]?.id ?? null
   state.stage = 'awaitingEndTurn'
+  state.auction = null
 
   if (state.winnerId) {
     const winner = getPlayer(state, state.winnerId)

@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { money } from '../engine/log'
+import { Avatar } from './AvatarArt'
 import { currentPlayer, debtOwedBy, ownedPropertyIds } from '../engine/queries'
 import type { GameAction, GameState } from '../engine/types'
 import { ActionBar } from './ActionBar'
@@ -149,7 +150,11 @@ export function MobileLeaderboard({
           >
             <span className="mlb-rank">{rank}</span>
             <span className="mlb-avatar" style={{ background: player.colourHex }}>
-              {player.name.charAt(0).toUpperCase()}
+              {player.avatarId ? (
+                <Avatar id={player.avatarId} size={22} className="in-ring" />
+              ) : (
+                player.name.charAt(0).toUpperCase()
+              )}
             </span>
             <span className="mlb-name">
               <span className="mlb-name-text">{player.name}</span>

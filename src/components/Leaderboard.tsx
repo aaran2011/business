@@ -1,4 +1,5 @@
 import { money } from '../engine/log'
+import { Avatar } from './AvatarArt'
 import { leaderboard } from '../engine/queries'
 import type { GameAction, GameState } from '../engine/types'
 
@@ -63,11 +64,13 @@ export function Leaderboard({
           style={{ opacity: player.isOut ? 0.45 : 1 }}
         >
           <span className="lb-rank">{i + 1}</span>
-          <span
-            className="player-token"
-            style={{ background: player.colourHex, width: 20, height: 20, fontSize: 9 }}
-          >
-            {player.name.charAt(0).toUpperCase()}
+          <span className="lb-face">
+            <Avatar id={player.avatarId} size={24} />
+            <span
+              className="player-token lb-face-dot"
+              style={{ background: player.colourHex }}
+              title={`${player.name}'s colour`}
+            />
           </span>
           <span className="lb-name">
             {player.name}

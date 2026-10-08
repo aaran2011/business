@@ -240,3 +240,13 @@ export function leaderboard(state: GameState): { player: Player; assets: PlayerA
       return b.assets.netWorth - a.assets.netWorth
     })
 }
+
+/**
+ * Whether this game is being played with bidding.
+ *
+ * Lives here rather than in auction.ts so the space handlers can ask without
+ * importing the auction, which imports them back.
+ */
+export function biddingGame(state: GameState): boolean {
+  return state.settings.mode === 'bid'
+}

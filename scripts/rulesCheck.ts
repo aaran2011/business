@@ -11,12 +11,21 @@ import {
   JAIL_INDEX,
   PARTY_HOUSE_INDEX,
 } from '../src/data/board'
+import { AVATARS, DEFAULT_AVATAR_ID, avatarById } from '../src/data/avatars'
 import { CHANCE_CARDS } from '../src/data/chanceCards'
 import { COUNTRIES } from '../src/data/properties'
 import { DEFAULT_SETTINGS } from '../src/data/settings'
 import { SPECIAL_ASSETS } from '../src/data/specialAssets'
 import { UNO_CARDS } from '../src/data/unoCards'
+import {
+  bidProblem,
+  closeAuction,
+  dropBidderFromAuction,
+  minimumBid,
+  placeBid,
+} from '../src/engine/auction'
 import { buildOneStep, canBuild, sellBuilding } from '../src/engine/building'
+import { computerAction } from '../src/engine/computer'
 import { diceTotal, rollDice } from '../src/engine/dice'
 import { createInitialState, gameReducer, makeGameCode, orderRollTurn } from '../src/engine/game'
 import { attemptJailEscape } from '../src/engine/jail'
@@ -2085,6 +2094,501 @@ console.log('— Getting paid waits for OK —')
   ok('the mover may press OK', guestMayDo({ type: 'ACK_MONEY', id: 1 }, mover, state))
   ok('nobody else may', !guestMayDo({ type: 'ACK_MONEY', id: 1 }, other, state))
 }
+
+// ===========================================================================
+console.log('\n— Bidding mode: the auction —')
+// ===========================================================================
+/*
+  Aaran's mode, 2026-10-09. None of this is a printed rule and none of it runs
+  in a classic game — the first checks below are the ones that prove that.
+*/
+
+/** A playing state in bid mode, with somebody standing on an unowned country. */
+function biddingState(n = 3, propertyId = 'malaysia') {
+  let state = makeState(n)
+  state.settings = {
+    ...state.settings,
+    mode: 'bid',
+    bidding: { ...state.settings.bidding, clockSeconds: 5, minRaise: 5 },
+  }
+  const mover = state.turnOrder[state.currentIndex]
+  state.pendingPurchase = { propertyId, price: purchasePriceOf(propertyId) }
+  state.stage = 'awaitingPurchase'
+  return { state, mover }
+}
+
+{
+  // The classic game is untouched: no auction, ever.
+  let state = makeState(3)
+  check('classic is the default mode', state.settings.mode, 'classic')
+  state.pendingPurchase = { propertyId: 'japan', price: purchasePriceOf('japan') }
+  state.stage = 'awaitingPurchase'
+  state = gameReducer(state, { type: 'DECLINE_PURCHASE' })
+  check('declining in a classic game starts no auction', state.auction, null)
+  check('and the turn carries straight on', state.stage, 'awaitingEndTurn')
+
+  let bought = makeState(3)
+  bought.pendingPurchase = { propertyId: 'japan', price: purchasePriceOf('japan') }
+  bought.stage = 'awaitingPurchase'
+  bought = gameReducer(bought, { type: 'BUY_PROPERTY' })
+  check(
+    'buying in a classic game is a purchase, not a bid',
+    bought.holdings.japan.ownerId,
+    bought.turnOrder[bought.currentIndex],
+  )
+  check('with no auction behind it', bought.auction, null)
+}
+
+{
+  // "When I click buy then other players can bid also."
+  const { state: start, mover } = biddingState()
+  const state = gameReducer(start, { type: 'BUY_PROPERTY' })
+  check('buy in bid mode opens an auction', state.stage, 'bidding')
+  check('the card is not handed over yet', state.holdings.malaysia.ownerId, null)
+  check('the opening bid is the printed price', state.auction?.highBid, 1500)
+  check('and it belongs to the player who landed', state.auction?.highBidderId, mover)
+  check('no money has moved', state.players.find((p) => p.id === mover)?.cash, 25000)
+  check('the clock is running', state.auction?.endsAt !== null, true)
+}
+
+{
+  // "If anyone else wants to buy it or bid for it, they can do it, and it is
+  //  not just for Malaysia. It is for every country."
+  const { state: start, mover } = biddingState()
+  const state = gameReducer(start, { type: 'DECLINE_PURCHASE' })
+  check('skip in bid mode ALSO opens an auction', state.stage, 'bidding')
+  check('with nothing bid', state.auction?.highBid, null)
+  check('and nobody holding it', state.auction?.highBidderId, null)
+  check('the player who landed is on record', state.auction?.landedBy, mover)
+  check('the first bid may be no lower than the price', minimumBid(state), 1500)
+}
+
+{
+  // Every purchasable space, country or asset, goes to the table.
+  let opened = 0
+  for (const propertyId of [...Object.keys(COUNTRIES), ...Object.keys(SPECIAL_ASSETS)]) {
+    const { state: start } = biddingState(3, propertyId)
+    const state = gameReducer(start, { type: 'DECLINE_PURCHASE' })
+    if (state.stage === 'bidding' && state.auction?.propertyId === propertyId) opened++
+  }
+  check('all 26 purchasable spaces can be auctioned', opened, 26)
+}
+
+{
+  // The minimum raise is $5 — his number.
+  const { state: start } = biddingState()
+  let state = gameReducer(start, { type: 'DECLINE_PURCHASE' })
+  const bidder = state.players.find((p) => p.id !== state.auction!.landedBy)!.id
+  check('$5 is the minimum raise', state.settings.bidding.minRaise, 5)
+  ok('a bid below the price is refused', bidProblem(state, bidder, 1499) !== null)
+  ok('the price exactly is allowed', bidProblem(state, bidder, 1500) === null)
+  state = gameReducer(state, { type: 'PLACE_BID', playerId: bidder, amount: 1500 })
+  check('the bid stands', state.auction?.highBid, 1500)
+  check('the minimum is now price + $5', minimumBid(state), 1505)
+  ok('a $4 raise is refused', bidProblem(state, state.auction!.landedBy, 1504) !== null)
+  ok('a $5 raise is allowed', bidProblem(state, state.auction!.landedBy, 1505) === null)
+  ok('any bigger number is allowed too', bidProblem(state, state.auction!.landedBy, 2777) === null)
+  ok('a fraction of a dollar is not', bidProblem(state, state.auction!.landedBy, 1505.5) !== null)
+}
+
+{
+  // Nobody bids money they do not have, so winning cannot create a debt.
+  const { state: start } = biddingState()
+  const state = gameReducer(start, { type: 'DECLINE_PURCHASE' })
+  const poor = state.players.find((p) => p.id !== state.auction!.landedBy)!
+  poor.cash = 2400
+  ok('a bid within their cash is allowed', bidProblem(state, poor.id, 2400) === null)
+  ok('a bid beyond it is refused', bidProblem(state, poor.id, 2405) !== null)
+  const tried = gameReducer(state, { type: 'PLACE_BID', playerId: poor.id, amount: 9000 })
+  check('and nothing changes', tried.auction?.highBid, null)
+}
+
+{
+  // Each bid puts the clock back to the top.
+  const { state: start } = biddingState()
+  let state = gameReducer(start, { type: 'DECLINE_PURCHASE' })
+  const first = state.auction!.endsAt!
+  const seq = state.auction!.bidSeq
+  state.auction!.endsAt = first - 4000
+  const bidder = state.players.find((p) => p.id !== state.auction!.landedBy)!.id
+  state = gameReducer(state, { type: 'PLACE_BID', playerId: bidder, amount: 2000 })
+  ok('a bid resets the clock', state.auction!.endsAt! > first - 4000)
+  check('and moves the count every device watches', state.auction!.bidSeq, seq + 1)
+}
+
+{
+  // Closing it: the high bidder pays their own bid, not the printed price.
+  const { state: start } = biddingState()
+  let state = gameReducer(start, { type: 'DECLINE_PURCHASE' })
+  const winner = state.players.find((p) => p.id !== state.auction!.landedBy)!.id
+  state = gameReducer(state, { type: 'PLACE_BID', playerId: winner, amount: 2400 })
+  state = gameReducer(state, { type: 'CLOSE_AUCTION' })
+  check('the high bidder gets the card', state.holdings.malaysia.ownerId, winner)
+  check('and pays exactly what they bid', state.players.find((p) => p.id === winner)?.cash, 22600)
+  check('the auction is over', state.auction, null)
+  check('and the turn can carry on', state.stage, 'awaitingEndTurn')
+}
+
+{
+  // Nobody bid: it stays with the Bank, exactly as in a classic game.
+  const { state: start } = biddingState()
+  let state = gameReducer(start, { type: 'DECLINE_PURCHASE' })
+  state = gameReducer(state, { type: 'CLOSE_AUCTION' })
+  check('an auction with no bids sells nothing', state.holdings.malaysia.ownerId, null)
+  check('and the turn carries on', state.stage, 'awaitingEndTurn')
+}
+
+{
+  // The player who landed has no advantage: they win only by bidding highest.
+  const { state: start, mover } = biddingState()
+  let state = gameReducer(start, { type: 'BUY_PROPERTY' })
+  const rival = state.players.find((p) => p.id !== mover)!.id
+  state = gameReducer(state, { type: 'PLACE_BID', playerId: rival, amount: 2005 })
+  state = gameReducer(state, { type: 'CLOSE_AUCTION' })
+  check('the player who landed can be outbid', state.holdings.malaysia.ownerId, rival)
+  check('and keeps all their money', state.players.find((p) => p.id === mover)?.cash, 25000)
+}
+
+{
+  // You cannot bid against yourself, and the turn cannot slip away underneath
+  // an open auction.
+  const { state: start, mover } = biddingState()
+  const state = gameReducer(start, { type: 'BUY_PROPERTY' })
+  ok('the high bidder may not raise themselves', bidProblem(state, mover, 3000) !== null)
+  const ended = gameReducer(state, { type: 'END_TURN' })
+  check('END_TURN is refused while bidding is open', ended.stage, 'bidding')
+  check('and the card is still unsold', ended.holdings.malaysia.ownerId, null)
+}
+
+{
+  // A paused game stops the bidding clock and gives the same time back.
+  const { state: start } = biddingState()
+  let state = gameReducer(start, { type: 'DECLINE_PURCHASE' })
+  state.auction!.endsAt = Date.now() + 3000
+  state = gameReducer(state, { type: 'REQUEST_PAUSE' })
+  state.paused = true
+  state.pauseRequested = false
+  // pauseNow runs at the start of a turn; freeze directly, as it would.
+  const frozen = structuredClone(state)
+  frozen.auction!.remainingMs = 3000
+  frozen.auction!.endsAt = null
+  const resumed = gameReducer(frozen, { type: 'RESUME' })
+  ok('the clock starts again with the time it had', resumed.auction!.endsAt !== null)
+  ok('and nothing is left frozen', resumed.auction!.remainingMs === null)
+}
+
+{
+  // Somebody walks out mid-auction.
+  const { state: start } = biddingState(3)
+  let state = gameReducer(start, { type: 'DECLINE_PURCHASE' })
+  const others = state.players.filter((p) => p.id !== state.auction!.landedBy)
+  state = gameReducer(state, { type: 'PLACE_BID', playerId: others[0].id, amount: 2000 })
+  state = gameReducer(state, { type: 'PLACE_BID', playerId: others[1].id, amount: 2500 })
+  dropBidderFromAuction(state, others[1].id)
+  check('the leaver takes their bid with them', state.auction?.highBidderId, others[0].id)
+  check('and the one below stands', state.auction?.highBid, 2000)
+  // And with nothing left behind it.
+  dropBidderFromAuction(state, others[0].id)
+  check('an auction can fall back to no bids', state.auction?.highBid, null)
+  closeAuction(state)
+  check('which sells nothing', state.holdings.malaysia.ownerId, null)
+}
+
+{
+  // The card the bidding was for never changes hands twice.
+  const { state: start } = biddingState()
+  let state = gameReducer(start, { type: 'DECLINE_PURCHASE' })
+  const winner = state.players.find((p) => p.id !== state.auction!.landedBy)!.id
+  state = gameReducer(state, { type: 'PLACE_BID', playerId: winner, amount: 2000 })
+  state = gameReducer(state, { type: 'CLOSE_AUCTION' })
+  const again = gameReducer(state, { type: 'CLOSE_AUCTION' })
+  check('a second close does nothing', again.players.find((p) => p.id === winner)?.cash, 23000)
+}
+
+{
+  // In bid mode the offer is made even when the player who landed cannot pay,
+  // because the answer is no longer only theirs.
+  let state = makeState(3)
+  state.settings = { ...state.settings, mode: 'bid' }
+  const mover = state.players.find((p) => p.id === state.turnOrder[state.currentIndex])!
+  mover.cash = 100
+  handlePropertyLanding(state, mover.id, 'malaysia')
+  check('an unaffordable country is still put up in bid mode', state.stage, 'awaitingPurchase')
+  const opened = gameReducer({ ...state, stage: 'awaitingPurchase' }, { type: 'DECLINE_PURCHASE' })
+  check('and skipping it opens the bidding', opened.stage, 'bidding')
+
+  let classic = makeState(3)
+  const broke = classic.players.find((p) => p.id === classic.turnOrder[classic.currentIndex])!
+  broke.cash = 100
+  handlePropertyLanding(classic, broke.id, 'malaysia')
+  check('in a classic game it is not offered at all', classic.pendingPurchase, null)
+}
+
+{
+  // A bid from the wrong hands.
+  const { state: start } = biddingState()
+  const state = gameReducer(start, { type: 'DECLINE_PURCHASE' })
+  const bidder = state.players.find((p) => p.id !== state.auction!.landedBy)!.id
+  const notPlaying = 'nobody'
+  ok('a stranger cannot bid', bidProblem(state, notPlaying, 3000) !== null)
+  const out = state.players.find((p) => p.id !== bidder && p.id !== state.auction!.landedBy)
+  if (out) {
+    out.isOut = true
+    ok('an eliminated player cannot bid', bidProblem(state, out.id, 3000) !== null)
+  }
+  const settled = { ...state, stage: 'awaitingEndTurn' as const }
+  ok('nobody can bid once the auction is settled', bidProblem(settled, bidder, 3000) !== null)
+}
+
+{
+  // What a joined phone may ask for. Bidding is the second action in the game
+  // that is not about the player whose turn it is.
+  const { state: start } = biddingState()
+  const state = gameReducer(start, { type: 'DECLINE_PURCHASE' })
+  const upNow = state.turnOrder[state.currentIndex]
+  const other = state.players.find((p) => p.id !== upNow)!.id
+  ok(
+    'a phone may bid out of turn',
+    guestMayDo({ type: 'PLACE_BID', playerId: other, amount: 2000 }, other, state),
+  )
+  ok(
+    'but only for its own seat',
+    !guestMayDo({ type: 'PLACE_BID', playerId: upNow, amount: 2000 }, other, state),
+  )
+  ok(
+    'and only while an auction is open',
+    !guestMayDo(
+      { type: 'PLACE_BID', playerId: other, amount: 2000 },
+      other,
+      { ...state, stage: 'awaitingEndTurn' },
+    ),
+  )
+  ok('the clock belongs to the host', !guestMayDo({ type: 'CLOSE_AUCTION' }, other, state))
+}
+
+{
+  // Bidding changes no printed value.
+  const { state: start } = biddingState()
+  const state = gameReducer(start, { type: 'BUY_PROPERTY' })
+  check(
+    'the printed price is what bidding starts from',
+    state.auction?.price,
+    COUNTRIES.malaysia.price,
+  )
+  // His example said "Malaysia and it is for 2,000"; the printed card says
+  // $1,500, and the card governs. Printed values are never "corrected".
+  check('Malaysia still costs its printed $1,500', COUNTRIES.malaysia.price, 1500)
+  check('and its rents are unchanged', COUNTRIES.malaysia.rent.site, 200)
+}
+
+// ===========================================================================
+console.log('\n— Computer players —')
+// ===========================================================================
+
+function withComputers(humans = 1, computers = 2) {
+  let state = createInitialState()
+  for (let i = 0; i < humans + computers; i++) {
+    state = gameReducer(state, {
+      type: 'ADD_LOBBY_PLAYER',
+      id: `p${i + 1}`,
+      name: i < humans ? `P${i + 1}` : `Computer ${i - humans + 1}`,
+      colourId: ['crimson', 'azure', 'emerald', 'amber', 'violet', 'slate'][i],
+      isComputer: i >= humans,
+    })
+  }
+  state = gameReducer(state, { type: 'START_GAME' })
+  state.orderRolls = state.orderRolls.map((e, i) => ({
+    ...e,
+    dice: [1, 1] as [number, number],
+    total: i === 0 ? 12 : 3,
+  }))
+  return gameReducer(state, { type: 'CONFIRM_ORDER' })
+}
+
+{
+  const state = withComputers(1, 2)
+  check('the computer flag survives the lobby', state.players.map((p) => Boolean(p.isComputer)), [
+    false,
+    true,
+    true,
+  ])
+  ok('a human seat is never answered for', computerAction(state, 'p1') === null)
+}
+
+{
+  // It rolls when it is up, and never when it is not.
+  const state = withComputers(1, 2)
+  state.currentIndex = state.turnOrder.indexOf('p2')
+  state.stage = 'awaitingRoll'
+  check('a computer rolls on its own turn', computerAction(state, 'p2')?.type, 'ROLL_DICE')
+  ok('and does nothing on somebody else\'s', computerAction(state, 'p3') === null)
+  const paused = { ...state, paused: true }
+  ok('a paused game stops it', computerAction(paused, 'p2') === null)
+}
+
+{
+  // Buying: it keeps a reserve back.
+  const state = withComputers(1, 2)
+  state.currentIndex = state.turnOrder.indexOf('p2')
+  state.stage = 'awaitingPurchase'
+  state.pendingPurchase = { propertyId: 'malaysia', price: 2000 }
+  check('it buys what it can comfortably afford', computerAction(state, 'p2')?.type, 'BUY_PROPERTY')
+  state.players.find((p) => p.id === 'p2')!.cash = 2100
+  check(
+    'and declines what would leave it broke',
+    computerAction(state, 'p2')?.type,
+    'DECLINE_PURCHASE',
+  )
+}
+
+{
+  // Bidding: it bids the minimum and stops at its ceiling.
+  const { state: start } = biddingState(3)
+  let state = gameReducer(start, { type: 'DECLINE_PURCHASE' })
+  const bidderId = state.players.find((p) => p.id !== state.auction!.landedBy)!.id
+  state.players.find((p) => p.id === bidderId)!.isComputer = true
+  const bid = computerAction(state, bidderId)
+  check('a computer bids', bid?.type, 'PLACE_BID')
+  check('the least it can', bid && 'amount' in bid ? bid.amount : null, 1500)
+  // Pushed past the printed price it walks away rather than chasing.
+  state = gameReducer(state, { type: 'PLACE_BID', playerId: state.auction!.landedBy, amount: 2000 })
+  state.auction!.highBid = 2200
+  state.auction!.highBidderId = state.auction!.landedBy
+  ok('it stops above the printed price', computerAction(state, bidderId) === null)
+  ok('and never bids against itself', computerAction(state, state.auction!.landedBy) === null)
+}
+
+{
+  // Jail: pay when comfortable, roll when not.
+  const state = withComputers(1, 2)
+  state.currentIndex = state.turnOrder.indexOf('p2')
+  state.stage = 'inJail'
+  const bot = state.players.find((p) => p.id === 'p2')!
+  bot.inJail = true
+  check('it pays its way out when it can', computerAction(state, 'p2')?.type, 'JAIL_PAY')
+  bot.cash = 600
+  check('and rolls when the fee would hurt', computerAction(state, 'p2')?.type, 'JAIL_ROLL')
+}
+
+{
+  // Debt: it raises money rather than folding while it still owns something.
+  const state = withComputers(1, 2)
+  state.currentIndex = state.turnOrder.indexOf('p2')
+  state.stage = 'awaitingEndTurn'
+  give(state, 'p2', 'malaysia', 'japan')
+  const bot = state.players.find((p) => p.id === 'p2')!
+  bot.cash = 100
+  state.debts.p2 = { debtorId: 'p2', payouts: [{ toId: 'p1', amount: 900 }], reason: 'rent' }
+  check('it mortgages to raise the money', computerAction(state, 'p2')?.type, 'MORTGAGE')
+  state.holdings.malaysia.mortgaged = true
+  state.holdings.japan.mortgaged = true
+  check('and pays once it has it', computerAction(state, 'p2')?.type, 'SETTLE_DEBT')
+}
+
+{
+  // Money in waits for its OK too, so the card is on screen either way.
+  const state = withComputers(1, 2)
+  state.currentIndex = state.turnOrder.indexOf('p2')
+  state.stage = 'awaitingEndTurn'
+  state.moneyToAck = [{ id: 7, playerId: 'p2', amount: 1500, why: 'Completed a round', from: [] }]
+  const act = computerAction(state, 'p2')
+  check('a computer presses OK', act?.type, 'ACK_MONEY')
+  check('on the right card', act && 'id' in act ? act.id : null, 7)
+}
+
+{
+  // The opening roll goes round the table in seat order, computers included.
+  const state = withComputers(1, 2)
+  let fresh = createInitialState()
+  for (let i = 0; i < 3; i++) {
+    fresh = gameReducer(fresh, {
+      type: 'ADD_LOBBY_PLAYER',
+      id: `p${i + 1}`,
+      name: `P${i + 1}`,
+      colourId: ['crimson', 'azure', 'emerald'][i],
+      isComputer: i > 0,
+    })
+  }
+  fresh = gameReducer(fresh, { type: 'START_GAME' })
+  check('the roll-off starts with seat one', orderRollTurn(fresh), 'p1')
+  ok('a computer waits its turn to roll', computerAction(fresh, 'p3') === null)
+  fresh.orderRolls[0] = { playerId: 'p1', dice: [4], total: 4 }
+  check('then it takes its own', computerAction(fresh, 'p2')?.type, 'ROLL_FOR_ORDER')
+  void state
+}
+
+
+// ===========================================================================
+console.log('\n— Characters, and what they are allowed to touch —')
+// ===========================================================================
+
+{
+  // A character is a picture. It follows a player from the lobby into the
+  // game and changes nothing about the rules.
+  let state = createInitialState()
+  state = gameReducer(state, {
+    type: 'ADD_LOBBY_PLAYER',
+    id: 'p1',
+    name: 'Aaran',
+    colourId: 'crimson',
+    avatarId: 'firefighter',
+  })
+  state = gameReducer(state, {
+    type: 'ADD_LOBBY_PLAYER',
+    id: 'p2',
+    name: 'Priya',
+    colourId: 'azure',
+  })
+  check('the chosen character is kept', state.lobby[0].avatarId, 'firefighter')
+  check('and nobody is given one they did not pick', state.lobby[1].avatarId, undefined)
+
+  state = gameReducer(state, { type: 'UPDATE_LOBBY_PLAYER', id: 'p2', avatarId: 'owl' })
+  check('it can be changed in the lobby', state.lobby[1].avatarId, 'owl')
+  check('without touching the name', state.lobby[1].name, 'Priya')
+  check('or the colour', state.lobby[1].colourId, 'azure')
+
+  state = gameReducer(state, { type: 'START_GAME' })
+  check('and it carries into the game', state.players[0].avatarId, 'firefighter')
+  check('for everyone', state.players[1].avatarId, 'owl')
+  check(
+    'everyone still starts with the same money',
+    state.players.map((p) => p.cash),
+    [DEFAULT_SETTINGS.startingCash, DEFAULT_SETTINGS.startingCash],
+  )
+}
+
+{
+  // Every character in the gallery is a real one, and the default is in it.
+  const ids = AVATARS.map((a) => a.id)
+  ok('the gallery has 25 to 30 characters', ids.length >= 25 && ids.length <= 30)
+  check('no character is listed twice', new Set(ids).size, ids.length)
+  ok('the default is one of them', ids.includes(DEFAULT_AVATAR_ID))
+  ok('an unknown id falls back rather than breaking', avatarById('nonsense').id === DEFAULT_AVATAR_ID)
+  for (const group of ['flower', 'animal', 'car', 'person'] as const) {
+    ok(`there are ${group}s to choose from`, AVATARS.some((a) => a.group === group))
+  }
+  // He named these four by hand.
+  for (const wanted of ['Army officer', 'Doctor', 'Girl', 'Boy']) {
+    ok(`${wanted} is in the gallery`, AVATARS.some((a) => a.name === wanted))
+  }
+}
+
+{
+  // A phone may set its OWN character and nobody else's. The same rule as the
+  // name and the colour, which is the one this has to match.
+  let state = createInitialState()
+  state = gameReducer(state, { type: 'ADD_LOBBY_PLAYER', id: 'p1', name: 'A', colourId: 'crimson' })
+  state = gameReducer(state, { type: 'ADD_LOBBY_PLAYER', id: 'p2', name: 'B', colourId: 'azure' })
+  ok(
+    'a phone may change its own character',
+    guestMayDo({ type: 'UPDATE_LOBBY_PLAYER', id: 'p2', avatarId: 'fox' }, 'p2', state),
+  )
+  ok(
+    'and nobody else\'s',
+    !guestMayDo({ type: 'UPDATE_LOBBY_PLAYER', id: 'p1', avatarId: 'fox' }, 'p2', state),
+  )
+}
+
 
 // ===========================================================================
 

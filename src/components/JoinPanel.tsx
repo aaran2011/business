@@ -1,16 +1,28 @@
 import { useState } from 'react'
 import { PLAYER_COLOURS } from '../data/playerColours'
+import type { Profile } from '../net/accounts'
 import { CODE_LENGTH, normaliseCode } from '../net/protocol'
 import type { Session } from '../net/useSession'
+import { Avatar } from './AvatarArt'
 
 /**
  * "Put Code" — how a phone gets into someone else's game. Type the code, then
  * put in your own name and pick your own colour. You are added to the host's
  * lobby as you do it, and everyone sees you appear.
  */
-export function JoinPanel({ session, onBack }: { session: Session; onBack: () => void }) {
+export function JoinPanel({
+  session,
+  profile,
+  onBack,
+}: {
+  session: Session
+  /** Who is playing on this device: their name and character come with them. */
+  profile: Profile
+  onBack: () => void
+}) {
   const [code, setCode] = useState('')
-  const [name, setName] = useState('')
+  // Their signed-in name is filled in, and still editable for this game.
+  const [name, setName] = useState(profile.username)
   const codeReady = normaliseCode(code).length === CODE_LENGTH
 
   const connected = session.status === 'ready' && session.role === 'guest'
@@ -80,6 +92,10 @@ export function JoinPanel({ session, onBack }: { session: Session; onBack: () =>
           {/* ------------------------------------------- add yourself ------- */}
           {connected && !seated && (
             <>
+              <div className="join-face">
+                <Avatar id={profile.avatarId} size={40} />
+                <span>Joining as this character</span>
+              </div>
               <input
                 className="input"
                 placeholder="Your name"
@@ -88,14 +104,14 @@ export function JoinPanel({ session, onBack }: { session: Session; onBack: () =>
                 autoFocus
                 onChange={(e) => setName(e.target.value)}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter') session.addMe(name, firstFree.id)
+                  if (e.key === 'Enter') session.addMe(name, firstFree.id, profile.avatarId)
                 }}
               />
               {session.error && <div className="join-error">{session.error}</div>}
               <button
                 className="btn btn-primary"
                 style={{ width: '100%', justifyContent: 'center', marginTop: 12 }}
-                onClick={() => session.addMe(name, firstFree.id)}
+                onClick={() => session.addMe(name, firstFree.id, profile.avatarId)}
               >
                 Join as {name.trim() || 'Player'}
               </button>

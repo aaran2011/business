@@ -6,6 +6,7 @@
 import { BOARD_SIZE } from '../src/data/board'
 import { COUNTRIES } from '../src/data/properties'
 import { SPECIAL_ASSETS } from '../src/data/specialAssets'
+import { bidProblem, minimumBid } from '../src/engine/auction'
 import { canBuild, canSellBuilding } from '../src/engine/building'
 import { createInitialState, gameReducer } from '../src/engine/game'
 import { canMortgage } from '../src/engine/mortgage'
@@ -13,6 +14,12 @@ import { debtOwedBy, ownedPropertyIds } from '../src/engine/queries'
 import type { GameAction, GameState } from '../src/engine/types'
 
 const GAMES = 200
+/**
+ * Half the games are played with bidding switched on, so the auction is
+ * exercised by complete games rather than only by the rule checks: every
+ * landing on an unowned space becomes an auction the whole table joins.
+ */
+const BID_MODE_FROM = GAMES / 2
 const MAX_ACTIONS = 20000
 
 const violations: string[] = []
@@ -47,6 +54,29 @@ function assertInvariants(state: GameState, context: string) {
     }
   }
 
+  if (state.auction && state.stage !== 'bidding') {
+    violate(`${context}: an auction is open at stage ${state.stage}`)
+  }
+  if (state.stage === 'bidding' && !state.auction) {
+    violate(`${context}: bidding with no auction`)
+  }
+  if (state.auction) {
+    const { highBid, highBidderId, price } = state.auction
+    if (highBid !== null && highBid < price) {
+      violate(`${context}: high bid ${highBid} is under the printed ${price}`)
+    }
+    if ((highBid === null) !== (highBidderId === null)) {
+      violate(`${context}: a bid with no bidder, or a bidder with no bid`)
+    }
+    const holder = state.players.find((p) => p.id === highBidderId)
+    if (holder && highBid !== null && holder.cash < highBid) {
+      violate(`${context}: ${holder.name} is high bidder at more than they hold`)
+    }
+    if (state.holdings[state.auction.propertyId].ownerId) {
+      violate(`${context}: ${state.auction.propertyId} is being auctioned while owned`)
+    }
+  }
+
   const active = state.players.filter((p) => !p.isOut)
   if (state.phase === 'playing' && active.length <= 1) {
     violate(`${context}: still playing with ${active.length} active player(s)`)
@@ -75,6 +105,27 @@ function chooseAction(state: GameState, rng: () => number): GameAction | null {
   switch (state.stage) {
     case 'moving':
       return { type: 'COMPLETE_MOVE' }
+
+    /*
+      An auction belongs to the whole table, so this is the one stage where the
+      policy is not answering for the player whose turn it is. Everybody gets a
+      look in, in seat order, and the clock is closed by hand rather than by
+      wall time — the point here is that the auction always SETTLES, whoever
+      bids and however often.
+    */
+    case 'bidding': {
+      const auction = state.auction!
+      for (const bidder of state.players) {
+        if (bidder.isOut) continue
+        const amount = minimumBid(state) + (rng() < 0.3 ? Math.round(rng() * 500) : 0)
+        if (bidProblem(state, bidder.id, amount) !== null) continue
+        // Half-hearted bidders, so auctions end at a mixture of prices rather
+        // than always running to somebody's ceiling.
+        const keen = amount <= auction.price * 1.2 ? 0.55 : 0.12
+        if (rng() < keen) return { type: 'PLACE_BID', playerId: bidder.id, amount }
+      }
+      return { type: 'CLOSE_AUCTION' }
+    }
 
     case 'inJail':
       // Pay when comfortable, otherwise take this turn's escape roll. The
@@ -143,7 +194,9 @@ for (let game = 0; game < GAMES; game++) {
 
   try {
     const playerCount = 2 + Math.floor(rng() * 5)
+    const bidMode = game >= BID_MODE_FROM
     let state = createInitialState()
+    if (bidMode) state.settings = { ...state.settings, mode: 'bid' }
     for (let i = 0; i < playerCount; i++) {
       state = gameReducer(state, {
         type: 'ADD_LOBBY_PLAYER',
@@ -201,7 +254,7 @@ for (let game = 0; game < GAMES; game++) {
   }
 }
 
-console.log(`\nSimulated ${GAMES} games`)
+console.log(`\nSimulated ${GAMES} games (${BID_MODE_FROM} classic, ${GAMES - BID_MODE_FROM} with bidding)`)
 console.log(`  reached a winner : ${completed}`)
 console.log(`  hit the turn cap : ${stalled}`)
 console.log(`  average turns    : ${Math.round(totalTurns / GAMES)}`)

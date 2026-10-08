@@ -41,10 +41,10 @@ export type NetMessage =
   | { t: 'hello'; deviceId: string }
   /** host -> room: the whole game, addressed to one device (or everyone). */
   | { t: 'state'; forDevice: string | null; state: GameState; seats: SeatMap }
-  /** guest -> room: add me to the lobby with my own name and colour. */
-  | { t: 'addMe'; deviceId: string; name: string; colourId: string }
-  /** guest -> room: change my own name or colour. */
-  | { t: 'editMe'; deviceId: string; name?: string; colourId?: string }
+  /** guest -> room: add me to the lobby with my own name, colour and character. */
+  | { t: 'addMe'; deviceId: string; name: string; colourId: string; avatarId?: string }
+  /** guest -> room: change my own name, colour or character. */
+  | { t: 'editMe'; deviceId: string; name?: string; colourId?: string; avatarId?: string }
   /** host -> room: this device now plays this seat. */
   | { t: 'seated'; forDevice: string; playerId: string }
   /** guest -> room: my player would like to do this. */
@@ -140,6 +140,24 @@ export function guestMayDo(
         orderRollTurn(state) === guestPlayerId
       )
 
+    /*
+      BIDDING BELONGS TO THE WHOLE TABLE.
+
+      This is the second action in the game that is not about the player whose
+      turn it is — the opening roll was the first, and gating that on "your
+      turn" was a real bug. A bid may come from any seat at any point while an
+      auction is open, so the only questions are whether it is this device's
+      own seat and whether an auction is actually running. The amount itself is
+      the host's business: `placeBid` checks the minimum and the bidder's cash,
+      so a doctored number from a phone buys nothing.
+    */
+    case 'PLACE_BID':
+      return (
+        state.phase === 'playing' &&
+        state.stage === 'bidding' &&
+        action.playerId === guestPlayerId
+      )
+
     // Your own deeds are yours to build on, sell and mortgage — and nobody
     // else's ever are.
     case 'MORTGAGE':
@@ -163,6 +181,9 @@ export function guestMayDo(
     case 'UPDATE_SETTINGS':
     case 'RESET':
     case 'NET_SYNC':
+    // The bidding clock is the host's: it is the one device that can say when
+    // the time is up without six phones disagreeing.
+    case 'CLOSE_AUCTION':
       return false
 
     // Everything else is a move in the game: only on your own turn.

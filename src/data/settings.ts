@@ -23,6 +23,43 @@ export interface GameSettings {
   minPlayers: number
   maxPlayers: number
 
+  /**
+   * [NOT PRINTED — this is HOW you play, not a rule of the printed set.]
+   *
+   * 'classic' is the game as printed: land on an unowned country and it is
+   * yours at the printed price, or it stays with the Bank.
+   *
+   * 'bid' adds an auction. Landing on an unowned country opens it to EVERY
+   * player — the one who landed says buy or skip, and either way the rest may
+   * bid. Nothing about the prices, rents or any other rule changes; the only
+   * difference is who ends up holding the card and what they paid for it.
+   */
+  mode: 'classic' | 'bid'
+
+  /** Only read in 'bid' mode. */
+  bidding: {
+    /**
+     * Seconds on the clock. Every accepted bid puts it back to the top, so
+     * the auction only ends when nobody has raised for this long.
+     *
+     * Aaran's call: 5 by default, 3 also offered, chosen in House Rules
+     * during the game.
+     */
+    clockSeconds: number
+    /** The choices offered in House Rules. */
+    clockChoices: readonly number[]
+    /**
+     * The least a bid may add to the one before it. The first bid must be at
+     * least the printed price.
+     */
+    minRaise: number
+    /**
+     * Quick-raise buttons beside the box you can type any number into.
+     * Presentation only — any amount at or above the minimum is legal.
+     */
+    quickRaises: readonly number[]
+  }
+
   dice: {
     /**
      * How many dice are rolled for movement.
@@ -187,6 +224,17 @@ export const DEFAULT_SETTINGS: GameSettings = {
 
   minPlayers: 2,
   maxPlayers: 6,
+
+  // The normal game until somebody chooses otherwise in the lobby.
+  mode: 'classic',
+
+  bidding: {
+    clockSeconds: 5,
+    clockChoices: [3, 5],
+    // "Each player can bid $5 minimum" — his words, 2026-10-09.
+    minRaise: 5,
+    quickRaises: [100, 500, 1000],
+  },
 
   dice: { count: 1, faces: 6, rollAnimationMs: 1700 },
 

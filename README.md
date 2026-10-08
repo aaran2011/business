@@ -10,10 +10,51 @@ codebase.
 ```bash
 npm install
 npm run dev        # http://localhost:4600 — and on your LAN IP, for phones
-npm test           # typecheck + 356 rule assertions
+npm test           # typecheck + 594 rule assertions
 npm run simulate   # plays 200 full random games, checks invariants
 npm run build      # production build into dist/
 ```
+
+---
+
+## Two ways to play, three ways to play together
+
+Chosen on the front door, before the lobby.
+
+**Classic** is the printed game. Land on a country nobody owns and it is yours
+at the printed price, or it stays with the Bank. Nothing else.
+
+**Bidding** adds an auction, and only an auction — no price, rent or other
+printed value changes. Land on a country nobody owns and the whole table gets
+a go: the player who landed says buy or skip, and *either way* the rest may
+bid. Buy is not a purchase in this mode, it is the opening bid at the printed
+price. A clock runs (5 seconds, or 3 — House Rules, during the game) and every
+bid puts it back to the top, so the card is sold once nobody has raised for
+that long. The minimum raise is $5, any amount above it is legal, and nobody
+may bid more than they hold — so winning an auction can never create a debt.
+
+Alongside that: **Online** (everyone on their own device, with a code),
+**Computer** (the machine plays a seat: it buys, builds, pays its way out of
+Jail and bids, on exactly the same rules) and **Pass and play** (everybody
+round one device, no connection needed at all).
+
+## Signing in
+
+A username, a password and a character, so the same player and the same
+character turn up on any device. The gallery is 29 drawn characters — flowers,
+animals, cars and people — with no image files anywhere: they are SVG, so the
+game still opens and plays with no internet.
+
+Accounts are the ONE thing that needs a database. Run
+[`supabase/accounts.sql`](supabase/accounts.sql) once in the Supabase SQL
+editor and they work; until then the sign-in screen says so and **"No account"
+is right there** — a name and a character kept on that device, and every part
+of the game except online play works through it.
+
+The table has row-level security on and no policies, so the publishable key in
+the bundle cannot read or write a single row. Three `security definer`
+functions are the only door; passwords are bcrypt hashes and never leave the
+database.
 
 ---
 

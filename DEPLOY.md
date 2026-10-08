@@ -136,3 +136,30 @@ needed, and unlike the publishable key it does bypass every protection.
 
 With no server configured the game still runs — everybody plays on one phone,
 and the join buttons are simply not offered.
+
+---
+
+## Accounts — the one thing that needs a database
+
+Everything above uses Realtime Broadcast, which needs no tables, no SQL and no
+row-level security. **Accounts with a password are the exception**, because a
+password has to be checked somewhere that is not the player's own browser.
+
+It is one paste, once:
+
+1. Supabase dashboard → **SQL Editor** → **New query**.
+2. Paste the whole of [`supabase/accounts.sql`](supabase/accounts.sql).
+3. **Run**. It is safe to run again — nothing is dropped and no account is lost.
+
+That creates one table and three functions. The table has row-level security
+**on with no policies**, so the publishable key that ships in the browser
+cannot read or write a single row of it; the three functions run as the owner
+and hand back only a username and a character. Passwords are stored as bcrypt
+hashes (pgcrypto, cost 10) and never leave the database. Ten wrong guesses
+locks that username for five minutes — the sign-in door is public, so it needs
+a bolt.
+
+**Until you run it**, the game still works completely. The sign-in screen says
+accounts are not switched on yet, and **"No account"** beside it gives a name
+and a character kept on that device. Only the "your character follows you to
+another device" part is missing.

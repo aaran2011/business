@@ -42,6 +42,41 @@ export function HouseRulesModal({
             left open rather than invented. All values live in <code>src/data/settings.ts</code>.
           </div>
 
+          {/*
+            Bidding. Shown only when the game is being played that way, so a
+            classic game's House Rules panel reads exactly as it always did.
+            He asked for the clock to be changeable "in the game itself after
+            the game has started" — this is that.
+          */}
+          {s.mode === 'bid' && (
+            <div className="settings-row">
+              <div className="label">
+                <strong>Bidding clock</strong>
+                <span>
+                  How long an auction waits for the next bid. Every bid puts the clock back to the
+                  top, so the card is sold once nobody has raised for this long.
+                </span>
+              </div>
+              <div className="control">
+                <select
+                  className="input"
+                  value={s.bidding.clockSeconds}
+                  onChange={(e) =>
+                    update((d) => {
+                      d.bidding.clockSeconds = Number(e.target.value)
+                    })
+                  }
+                >
+                  {s.bidding.clockChoices.map((seconds) => (
+                    <option key={seconds} value={seconds}>
+                      {seconds} seconds
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          )}
+
           <div className="settings-row">
             <div className="label">
               <strong>{detail('dice.count').label}</strong>

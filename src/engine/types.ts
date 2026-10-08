@@ -26,6 +26,20 @@ export interface Player {
   cashHidden?: boolean
   /** Seat order, fixed at setup. Turns run clockwise through this. */
   seat: number
+  /**
+   * Played by the machine rather than by a person.
+   *
+   * The rules do not care: a computer player is charged rent, goes to Jail and
+   * can be bankrupted exactly like anyone else. All this does is tell the
+   * DEVICE RUNNING THE GAME to answer for that seat, so nobody has to sit and
+   * tap for it. Nothing in `src/engine` reads it except to say so.
+   */
+  isComputer?: boolean
+  /**
+   * The character picked at sign-in, by id (see `src/data/avatars.ts`).
+   * Presentation only — no rule reads it.
+   */
+  avatarId?: string
 }
 
 /**
@@ -40,6 +54,10 @@ export interface LobbyEntry {
   colourId: string
   /** True for the seat the host device itself plays. */
   isHost: boolean
+  /** Answered by the device running the game, not by a person. */
+  isComputer?: boolean
+  /** The character chosen at sign-in, carried into the game. */
+  avatarId?: string
 }
 
 /** Ownership record for one country or special asset. */
@@ -63,6 +81,14 @@ export type TurnStage =
   | 'awaitingEndTurn'
   /** The current player is in Jail and must pay or attempt an escape. */
   | 'inJail'
+  /**
+   * BID MODE ONLY. An unowned space is up for auction and anybody may bid.
+   *
+   * This is the one stage that is not about the player whose turn it is: every
+   * player at the table can act, and the turn cannot end until the clock runs
+   * out and the card is settled.
+   */
+  | 'bidding'
 
 export interface PendingMove {
   from: number
@@ -84,6 +110,42 @@ export interface PendingMove {
 export interface PendingPurchase {
   propertyId: string
   price: number
+}
+
+/** One bid, kept in order so the panel can show how it went. */
+export interface AuctionBid {
+  playerId: string
+  amount: number
+}
+
+/**
+ * An auction in progress. BID MODE ONLY — `null` for the whole of a classic
+ * game, so nothing about the printed game changes.
+ *
+ * The clock is deliberately held two ways. `endsAt` is the HOST's own deadline
+ * and the only thing that decides when bidding closes. `bidSeq` is what the
+ * other devices count down from: it moves on every accepted bid, so each
+ * device restarts its own five seconds when it HEARS the bid, and a phone
+ * whose clock is a few seconds out still shows a sane number.
+ */
+export interface Auction {
+  propertyId: string
+  /** The printed price. The first bid may be no lower than this. */
+  price: number
+  /** Who landed on it. They bid like everybody else; they get no advantage. */
+  landedBy: string
+  /** True when the player who landed said buy — their bid opened it. */
+  openedByBuy: boolean
+  highBid: number | null
+  highBidderId: string | null
+  /** Every bid so far, oldest first. */
+  bids: AuctionBid[]
+  /** Bumped by every accepted bid. Each device restarts its clock on it. */
+  bidSeq: number
+  /** The host's deadline, in wall-clock ms. Authority, never display. */
+  endsAt: number | null
+  /** The frozen remainder while the game is paused. */
+  remainingMs: number | null
 }
 
 /** An offer to build on a country the player landed on and already owns. */
@@ -219,6 +281,8 @@ export interface GameState {
   pendingMove: PendingMove | null
   pendingPurchase: PendingPurchase | null
   pendingBuild: PendingBuild | null
+  /** BID MODE ONLY. The auction on the table, or null. */
+  auction: Auction | null
   /** Outstanding debts keyed by debtor id. Usually empty. */
   debts: Record<string, Debt>
 
@@ -291,8 +355,16 @@ export interface GameNotice {
 export type GameAction =
   | { type: 'START_GAME' }
   /** Someone takes a seat in the lobby. The id is chosen by the host. */
-  | { type: 'ADD_LOBBY_PLAYER'; id: string; name: string; colourId: string; isHost?: boolean }
-  | { type: 'UPDATE_LOBBY_PLAYER'; id: string; name?: string; colourId?: string }
+  | {
+      type: 'ADD_LOBBY_PLAYER'
+      id: string
+      name: string
+      colourId: string
+      isHost?: boolean
+      isComputer?: boolean
+      avatarId?: string
+    }
+  | { type: 'UPDATE_LOBBY_PLAYER'; id: string; name?: string; colourId?: string; avatarId?: string }
   | { type: 'REMOVE_LOBBY_PLAYER'; id: string }
   /** Each player rolls their own opening die, from their own device. */
   | { type: 'ROLL_FOR_ORDER'; playerId: string }
@@ -303,6 +375,13 @@ export type GameAction =
   | { type: 'COMPLETE_MOVE' }
   | { type: 'BUY_PROPERTY' }
   | { type: 'DECLINE_PURCHASE' }
+  /**
+   * BID MODE ONLY. Anybody may bid, not only the player whose turn it is, so
+   * this action carries the bidder's id.
+   */
+  | { type: 'PLACE_BID'; playerId: string; amount: number }
+  /** The bidding clock ran out. Sent by the device running the game. */
+  | { type: 'CLOSE_AUCTION' }
   | { type: 'BUILD'; propertyId: string }
   /** Turn down the build offer shown after landing on your own country. */
   | { type: 'DECLINE_BUILD' }
