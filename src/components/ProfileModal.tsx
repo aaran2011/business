@@ -7,10 +7,9 @@ import { AvatarGallery } from './LoginScreen'
 /**
  * Changing your character.
  *
- * On a real account the password is asked for again, because the publishable
- * key is public: without it, anybody who knew a username could repaint
- * somebody else's player. On a device-only profile there is nothing to prove,
- * so it saves straight away.
+ * The password is asked for again, because the publishable key is public:
+ * without it, anybody who knew a username could repaint somebody else's
+ * player. It is not kept afterwards — this is the only screen that asks.
  */
 export function ProfileModal({
   profile,
@@ -27,18 +26,10 @@ export function ProfileModal({
   const [busy, setBusy] = useState(false)
 
   const changed = avatarId !== profile.avatarId
-  const needsPassword = !profile.local
 
   const save = async () => {
     setError(null)
     if (!changed) return onClose()
-
-    if (!needsPassword) {
-      const next = { ...profile, avatarId }
-      saveProfile(next)
-      onSaved(next)
-      return
-    }
 
     setBusy(true)
     try {
@@ -68,7 +59,7 @@ export function ProfileModal({
         <div className="panel-body login-body">
           <AvatarGallery value={avatarId} onChange={setAvatarId} />
 
-          {needsPassword && changed && (
+          {changed && (
             <div className="login-field">
               <label htmlFor="profile-pass">
                 Your password
@@ -97,7 +88,7 @@ export function ProfileModal({
             <button
               className="btn btn-primary"
               style={{ marginLeft: 'auto' }}
-              disabled={busy || (needsPassword && changed && password === '')}
+              disabled={busy || (changed && password === '')}
               onClick={save}
             >
               {busy ? 'Saving…' : changed ? 'Save' : 'Done'}

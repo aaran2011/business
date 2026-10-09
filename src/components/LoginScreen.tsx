@@ -19,13 +19,16 @@ import { Avatar } from './AvatarArt'
  * player to any device. The password never leaves the database as anything but
  * a bcrypt hash and is never kept on this device.
  *
- * It is a door, not a gate. If accounts have not been set up, or the phone is
- * offline, "Play without an account" is right there and the whole game works
- * through it — the board, the rules, pass-and-play and a game against the
- * computer need no server at all.
+ * There is no way past it: he removed the "No account" option on 2026-10-09,
+ * so everybody who plays has an account. The cost of that is worth saying out
+ * loud — until `supabase/accounts.sql` has been run, NOBODY can get in, so the
+ * message for that case names the file rather than just apologising.
+ *
+ * Signing in happens once per device and lasts until Log Out. See
+ * `loadProfile`.
  */
 export function LoginScreen({ onSignedIn }: { onSignedIn: (profile: Profile) => void }) {
-  const [tab, setTab] = useState<'in' | 'new' | 'guest'>('new')
+  const [tab, setTab] = useState<'in' | 'new'>('new')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [avatarId, setAvatarId] = useState(DEFAULT_AVATAR_ID)
@@ -39,14 +42,6 @@ export function LoginScreen({ onSignedIn }: { onSignedIn: (profile: Profile) => 
     setError(null)
     setBusy(true)
     try {
-      if (tab === 'guest') {
-        const problem = usernameProblem(username)
-        if (problem) return setError(problem)
-        const profile: Profile = { username: username.trim(), avatarId, local: true }
-        saveProfile(profile)
-        onSignedIn(profile)
-        return
-      }
       const result =
         tab === 'new' ? await signUp(username, password, avatarId) : await signIn(username, password)
       if (!result.ok) {
@@ -62,8 +57,9 @@ export function LoginScreen({ onSignedIn }: { onSignedIn: (profile: Profile) => 
   }
 
   const nameProblem = usernameProblem(username)
-  const passProblem = tab === 'guest' ? null : passwordProblem(password)
-  const ready = tab === 'in' ? username.trim() !== '' && password !== '' : !nameProblem && !passProblem
+  const passProblem = passwordProblem(password)
+  const ready =
+    tab === 'in' ? username.trim() !== '' && password !== '' : !nameProblem && !passProblem
 
   return (
     <div className="setup-shell">
@@ -72,9 +68,7 @@ export function LoginScreen({ onSignedIn }: { onSignedIn: (profile: Profile) => 
         <p>
           {tab === 'in'
             ? 'Sign in and your character comes with you.'
-            : tab === 'new'
-              ? 'Pick a character, choose a name, and you are in.'
-              : 'Just a name and a character. Nothing is saved anywhere but this device.'}
+            : 'Pick a character, choose a name, and you are in.'}
         </p>
       </div>
 
@@ -102,32 +96,19 @@ export function LoginScreen({ onSignedIn }: { onSignedIn: (profile: Profile) => 
           >
             Sign in
           </button>
-          <button
-            role="tab"
-            aria-selected={tab === 'guest'}
-            className={`login-tab${tab === 'guest' ? ' is-on' : ''}`}
-            onClick={() => {
-              setTab('guest')
-              setError(null)
-            }}
-          >
-            No account
-          </button>
         </div>
 
         <div className="panel-body login-body">
           {/* The gallery. Not shown when signing in: the account already has
               a character, and it arrives with it. */}
-          {tab !== 'in' && (
-            <>
-              <div className="login-field">
-                <label htmlFor="login-char">
-                  Your character
-                  <span className="login-hint">{chosen.name}</span>
-                </label>
-                <AvatarGallery id="login-char" value={avatarId} onChange={setAvatarId} />
-              </div>
-            </>
+          {tab === 'new' && (
+            <div className="login-field">
+              <label htmlFor="login-char">
+                Your character
+                <span className="login-hint">{chosen.name}</span>
+              </label>
+              <AvatarGallery id="login-char" value={avatarId} onChange={setAvatarId} />
+            </div>
           )}
 
           <div className="login-field">
@@ -149,33 +130,31 @@ export function LoginScreen({ onSignedIn }: { onSignedIn: (profile: Profile) => 
                 if (e.key === 'Enter' && ready && !busy) void submit()
               }}
             />
-            {username !== '' && nameProblem && tab !== 'in' && (
+            {username !== '' && nameProblem && tab === 'new' && (
               <span className="login-problem">{nameProblem}</span>
             )}
           </div>
 
-          {tab !== 'guest' && (
-            <div className="login-field">
-              <label htmlFor="login-pass">
-                Password
-                <span className="login-hint">At least 6 characters</span>
-              </label>
-              <input
-                id="login-pass"
-                className="input"
-                type="password"
-                value={password}
-                autoComplete={tab === 'new' ? 'new-password' : 'current-password'}
-                onChange={(e) => setPassword(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && ready && !busy) void submit()
-                }}
-              />
-              {password !== '' && passProblem && (
-                <span className="login-problem">{passProblem}</span>
-              )}
-            </div>
-          )}
+          <div className="login-field">
+            <label htmlFor="login-pass">
+              Password
+              <span className="login-hint">At least 6 characters</span>
+            </label>
+            <input
+              id="login-pass"
+              className="input"
+              type="password"
+              value={password}
+              autoComplete={tab === 'new' ? 'new-password' : 'current-password'}
+              onChange={(e) => setPassword(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && ready && !busy) void submit()
+              }}
+            />
+            {password !== '' && passProblem && tab === 'new' && (
+              <span className="login-problem">{passProblem}</span>
+            )}
+          </div>
 
           {error && (
             <div className="login-error">
@@ -183,28 +162,22 @@ export function LoginScreen({ onSignedIn }: { onSignedIn: (profile: Profile) => 
               {setupNeeded && (
                 <div className="login-setup">
                   Whoever runs this game needs to run <code>supabase/accounts.sql</code> once in
-                  the Supabase SQL editor. Until then, "No account" works exactly the same for
-                  playing.
+                  the Supabase SQL editor — it is in the repository, and it is one paste. Nobody
+                  can sign in until that is done.
                 </div>
               )}
             </div>
           )}
 
-          {!accountsPossible() && tab !== 'guest' && (
+          {!accountsPossible() && (
             <div className="login-error">
-              This build has no server, so it cannot keep accounts. Use "No account" — everything
-              but online play works without one.
+              This build has no server set, so it cannot keep accounts. See{' '}
+              <code>DEPLOY.md</code>.
             </div>
           )}
 
           <button className="btn btn-primary login-go" disabled={!ready || busy} onClick={submit}>
-            {busy
-              ? 'One moment…'
-              : tab === 'new'
-                ? 'Create account'
-                : tab === 'in'
-                  ? 'Sign in'
-                  : "Let's play"}
+            {busy ? 'One moment…' : tab === 'new' ? 'Create account' : 'Sign in'}
           </button>
         </div>
       </div>

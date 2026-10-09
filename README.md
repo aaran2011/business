@@ -40,16 +40,23 @@ round one device, no connection needed at all).
 
 ## Signing in
 
-A username, a password and a character, so the same player and the same
-character turn up on any device. The gallery is 29 drawn characters — flowers,
-animals, cars and people — with no image files anywhere: they are SVG, so the
-game still opens and plays with no internet.
+A username, a password and a character. There is no way past it and no guest
+mode: everybody who plays has an account, so the same player and the same
+character turn up on any device.
 
-Accounts are the ONE thing that needs a database. Run
-[`supabase/accounts.sql`](supabase/accounts.sql) once in the Supabase SQL
-editor and they work; until then the sign-in screen says so and **"No account"
-is right there** — a name and a character kept on that device, and every part
-of the game except online play works through it.
+**Signing in lasts until Log Out.** It is not a session and it does not
+expire; the device remembers the account and goes straight to the front door
+every time, with no connection needed — only the Log Out button ends it.
+
+The gallery is 29 drawn characters — flowers, animals, cars and people — with
+no image files anywhere: they are SVG, so the game still opens and plays with
+no internet.
+
+Accounts are the ONE thing that needs a database, and because there is no
+guest mode they are **required**: until
+[`supabase/accounts.sql`](supabase/accounts.sql) has been run once in the
+Supabase SQL editor, nobody can sign in and nobody can play. The screen says
+so and names the file.
 
 The table has row-level security on and no policies, so the publishable key in
 the bundle cannot read or write a single row. Three `security definer`

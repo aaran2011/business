@@ -159,7 +159,11 @@ hashes (pgcrypto, cost 10) and never leave the database. Ten wrong guesses
 locks that username for five minutes — the sign-in door is public, so it needs
 a bolt.
 
-**Until you run it**, the game still works completely. The sign-in screen says
-accounts are not switched on yet, and **"No account"** beside it gives a name
-and a character kept on that device. Only the "your character follows you to
-another device" part is missing.
+**Run it before anyone tries to play.** There is no guest mode — the "No
+account" option was removed on 2026-10-09 — so until this SQL has been run,
+nobody can sign in and nobody can get to the board. The sign-in screen says
+exactly that and names the file, but it cannot let anybody past.
+
+Once somebody has signed in on a device, that device stays signed in until
+they press Log Out. It never re-checks with the server, so a player who signed
+in yesterday still gets straight to the board with the connection down.

@@ -61,15 +61,15 @@ export function HomeScreen({
         <Avatar id={profile.avatarId} size={48} />
         <div className="me-text">
           <strong>{profile.username}</strong>
-          <span>
-            {profile.local ? 'Playing without an account — this device only' : 'Signed in'}
-          </span>
+          {/* Said plainly, because it is a promise: this device will not ask
+              again until they press the button next to it. */}
+          <span>Signed in — stays signed in until you log out</span>
         </div>
         <button className="btn btn-sm btn-ghost" onClick={onEditProfile}>
           Change character
         </button>
         <button className="btn btn-sm btn-ghost" onClick={onSignOut}>
-          {profile.local ? 'Change name' : 'Sign out'}
+          Log out
         </button>
       </div>
 

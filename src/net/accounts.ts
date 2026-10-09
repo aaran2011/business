@@ -29,12 +29,6 @@ import { multiplayerConfigured, supabase } from './supabase'
 export interface Profile {
   username: string
   avatarId: string
-  /**
-   * True for a profile that only exists on this device — somebody who chose
-   * to play without signing in. It still names them and gives them a
-   * character; it just is not an account anywhere.
-   */
-  local: boolean
 }
 
 export type AuthResult =
@@ -51,17 +45,30 @@ const STORE_KEY = 'business.profile'
 /** How long to wait for the account server before saying it is not there. */
 const ACCOUNT_TIMEOUT_MS = 7000
 
-/** The signed-in player on this device, if there is one. */
+/**
+ * The signed-in player on this device, if there is one.
+ *
+ * SIGNING IN LASTS UNTIL THEY LOG OUT. His words, 2026-10-09: "it should not
+ * log out by itself... always keep them signed in until and unless the user
+ * clicks Log Out." So there is no expiry here, nothing to refresh and no
+ * re-check against the server — a signed-in player gets straight to the board
+ * even with no connection at all, and only `clearProfile` ever ends it.
+ */
 export function loadProfile(): Profile | null {
   try {
     const raw = localStorage.getItem(STORE_KEY)
     if (!raw) return null
-    const parsed = JSON.parse(raw) as Partial<Profile>
+    const parsed = JSON.parse(raw) as Partial<Profile> & { local?: boolean }
     if (!parsed.username) return null
+    /*
+      Profiles saved while "No account" existed were device-only. That option
+      is gone, so one of those is not a signed-in player: they are asked to
+      create an account or sign in once, and remembered from then on.
+    */
+    if (parsed.local) return null
     return {
       username: String(parsed.username),
       avatarId: String(parsed.avatarId ?? DEFAULT_AVATAR_ID),
-      local: Boolean(parsed.local),
     }
   } catch {
     // Storage blocked, or something else wrote nonsense to the key. Treat it
@@ -74,7 +81,11 @@ export function saveProfile(profile: Profile): void {
   try {
     localStorage.setItem(STORE_KEY, JSON.stringify(profile))
   } catch {
-    // Private browsing. They stay signed in for this session only.
+    /*
+      Storage is blocked — private browsing, or site data switched off. They
+      stay signed in for this session, but a reload will ask again, and there
+      is nothing this code can do about that from inside the page.
+    */
   }
 }
 
@@ -172,7 +183,6 @@ async function call(fn: string, args: Record<string, string>): Promise<AuthResul
       profile: {
         username: answer.username ?? args.p_username,
         avatarId: answer.avatar ?? DEFAULT_AVATAR_ID,
-        local: false,
       },
     }
   } catch {
