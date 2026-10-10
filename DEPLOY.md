@@ -174,9 +174,11 @@ in yesterday still gets straight to the board with the connection down.
 
 On 2026-10-10 signing in failed with "could not reach the account server", and
 the cause was not the app: the project's own hostname had stopped resolving.
+The project in use then (`jmdmmbymypekciwnpvvr`) was gone for good, and the
+game was moved to the one it points at now.
 
 ```bash
-nslookup jmdmmbymypekciwnpvvr.supabase.co
+nslookup vfetxoncojfehbsqeflk.supabase.co
 ```
 
 `NXDOMAIN` means the project is **paused or gone**, not that your connection

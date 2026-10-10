@@ -13,6 +13,14 @@
  *
  * An environment variable still wins where one is set, so a different project
  * can be pointed at (a test one, say) without editing code.
+ *
+ * MOVED 2026-10-10. The previous project (ref `jmdmmbymypekciwnpvvr`) stopped
+ * resolving in DNS entirely — a free project left idle is paused and then
+ * removed — which took the accounts API and the multiplayer channel with it,
+ * since they are the same host. If everything stops connecting at once, check
+ * that this address still resolves before looking at any code:
+ *
+ *     nslookup vfetxoncojfehbsqeflk.supabase.co
  */
-export const BUILT_IN_SUPABASE_URL = 'https://jmdmmbymypekciwnpvvr.supabase.co'
-export const BUILT_IN_SUPABASE_ANON_KEY = 'sb_publishable_qJTeWy6pYtMylyi4Z6BOog__ZnWNWMi'
+export const BUILT_IN_SUPABASE_URL = 'https://vfetxoncojfehbsqeflk.supabase.co'
+export const BUILT_IN_SUPABASE_ANON_KEY = 'sb_publishable_FfQjK9iyHyomOBS2mA2XOA_hFlYDnqC'

@@ -22,7 +22,7 @@
 // activate handler deletes every cache that is not this one, so a stale
 // bundle — one still carrying the background music that was removed, say —
 // cannot survive an update.
-const CACHE = 'business-v5'
+const CACHE = 'business-v6'
 const SHELL = ['/', '/index.html', '/favicon.svg', '/manifest.webmanifest']
 
 self.addEventListener('install', (event) => {
