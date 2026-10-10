@@ -198,8 +198,14 @@ export function LoginScreen({ onSignedIn }: { onSignedIn: (profile: Profile) => 
 
           {serverState === 'unreachable' && !error && (
             <div className="login-error">
-              The account server is not answering from this device. Signing in will not work until
-              it does — check the connection.
+              {navigator.onLine
+                ? 'The account server is not answering, and this device is online — so the server is down rather than you.'
+                : 'This device is offline. Signing in needs a connection.'}
+              <div className="login-setup">
+                {navigator.onLine
+                  ? 'Whoever runs this game needs to check that its Supabase project is still awake, at the address in src/net/gameServer.ts.'
+                  : 'Everything else — the board, the rules, a game against the computer — needs no connection at all once you are in.'}
+              </div>
             </div>
           )}
 

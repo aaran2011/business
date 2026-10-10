@@ -167,3 +167,32 @@ exactly that and names the file, but it cannot let anybody past.
 Once somebody has signed in on a device, that device stays signed in until
 they press Log Out. It never re-checks with the server, so a player who signed
 in yesterday still gets straight to the board with the connection down.
+
+---
+
+## If nothing can connect — check the project is still there
+
+On 2026-10-10 signing in failed with "could not reach the account server", and
+the cause was not the app: the project's own hostname had stopped resolving.
+
+```bash
+nslookup jmdmmbymypekciwnpvvr.supabase.co
+```
+
+`NXDOMAIN` means the project is **paused or gone**, not that your connection
+is bad. A Supabase project on the free plan is paused after about a week with
+no activity, and a paused project's subdomain stops resolving — so the
+accounts API and the multiplayer channel both disappear at the same moment,
+because they are the same host.
+
+Two ways back:
+
+1. **Restore it.** [supabase.com/dashboard](https://supabase.com/dashboard) →
+   the project → Restore. Same address, so nothing in the code changes. Run
+   `supabase/accounts.sql` afterwards if it had never been run.
+2. **Replace it.** Make a new project, then put its Project URL and
+   **publishable** key into `src/net/gameServer.ts` (or set `VITE_SUPABASE_URL`
+   and `VITE_SUPABASE_ANON_KEY` on Vercel), and run `supabase/accounts.sql`
+   once in its SQL editor.
+
+Keeping it awake is the real fix: a project that gets used does not pause.

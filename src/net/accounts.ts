@@ -99,6 +99,17 @@ export function clearProfile(): void {
   }
 }
 
+/**
+ * Whether the DEVICE is off the network.
+ *
+ * Only ever used to word a failure. It is a hint, not proof — a laptop on a
+ * wifi network with no route out still reports itself online — so nothing is
+ * decided by it.
+ */
+function deviceOffline(): boolean {
+  return typeof navigator !== 'undefined' && navigator.onLine === false
+}
+
 /** Whether accounts can be reached at all from this build. */
 export function accountsPossible(): boolean {
   return multiplayerConfigured
@@ -175,9 +186,18 @@ function describe(trouble: Trouble): AuthResult {
     case 'server':
       return { ok: false, error: 'The account server had a problem.', detail: trouble.detail }
     default:
+      /*
+        Whose problem is it? Worth getting right. Telling somebody to "check
+        the connection" when their connection is fine and the SERVER has gone
+        sends them looking in the wrong place — which is exactly what happened
+        on 2026-10-10, when the game's Supabase project had stopped existing
+        and the app blamed the player's wifi for it.
+      */
       return {
         ok: false,
-        error: 'Could not reach the account server. Check the connection.',
+        error: deviceOffline()
+          ? 'This device is offline. Signing in needs a connection.'
+          : 'The account server did not answer, and this device is online — so the server itself is down, paused or has moved.',
         detail: trouble.detail,
       }
   }
