@@ -30,7 +30,7 @@ a go: the player who landed says buy or skip, and *either way* the rest may
 bid. Buy is not a purchase in this mode, it is the opening bid at the printed
 price. A clock runs (5 seconds, or 3 — House Rules, during the game) and every
 bid puts it back to the top, so the card is sold once nobody has raised for
-that long. The minimum raise is $5, any amount above it is legal, and nobody
+that long. The minimum raise is $50, any amount above it is legal, and nobody
 may bid more than they hold — so winning an auction can never create a debt.
 
 Alongside that: **Online** (everyone on their own device, with a code),

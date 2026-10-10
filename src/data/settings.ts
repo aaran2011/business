@@ -231,8 +231,10 @@ export const DEFAULT_SETTINGS: GameSettings = {
   bidding: {
     clockSeconds: 5,
     clockChoices: [3, 5],
-    // "Each player can bid $5 minimum" — his words, 2026-10-09.
-    minRaise: 5,
+    // "They should at least bid a minimum of $50" — 2026-10-11, raised from
+    // the $5 he first asked for. The cheapest country is $1,000, so $5 steps
+    // meant an auction could crawl up in increments worth nothing.
+    minRaise: 50,
     quickRaises: [100, 500, 1000],
   },
 

@@ -19,8 +19,9 @@
  *   * "It counts to 5 seconds. Or, for 3 seconds, you could select that in the
  *     game itself" — a clock, not turns, and every accepted bid puts it back
  *     to the top. `settings.bidding.clockSeconds`.
- *   * "Each player can bid $5 minimum" — a bid must beat the one before it by
- *     at least `settings.bidding.minRaise`.
+ *   * A bid must beat the one before it by at least
+ *     `settings.bidding.minRaise` — $5 when he first asked, $50 since
+ *     2026-10-11.
  *   * Nobody may bid money they do not have. A bid is capped by the bidder's
  *     cash, so winning an auction can never put a player into debt. That is
  *     the same principle as the printed game's purchase offer, not a new rule.

@@ -2109,7 +2109,7 @@ function biddingState(n = 3, propertyId = 'malaysia') {
   state.settings = {
     ...state.settings,
     mode: 'bid',
-    bidding: { ...state.settings.bidding, clockSeconds: 5, minRaise: 5 },
+    bidding: { ...state.settings.bidding, clockSeconds: 5, minRaise: 50 },
   }
   const mover = state.turnOrder[state.currentIndex]
   state.pendingPurchase = { propertyId, price: purchasePriceOf(propertyId) }
@@ -2175,20 +2175,20 @@ function biddingState(n = 3, propertyId = 'malaysia') {
 }
 
 {
-  // The minimum raise is $5 — his number.
+  // The minimum raise is $50 — his number, raised from $5 on 2026-10-11.
   const { state: start } = biddingState()
   let state = gameReducer(start, { type: 'DECLINE_PURCHASE' })
   const bidder = state.players.find((p) => p.id !== state.auction!.landedBy)!.id
-  check('$5 is the minimum raise', state.settings.bidding.minRaise, 5)
+  check('$50 is the minimum raise', state.settings.bidding.minRaise, 50)
   ok('a bid below the price is refused', bidProblem(state, bidder, 1499) !== null)
   ok('the price exactly is allowed', bidProblem(state, bidder, 1500) === null)
   state = gameReducer(state, { type: 'PLACE_BID', playerId: bidder, amount: 1500 })
   check('the bid stands', state.auction?.highBid, 1500)
-  check('the minimum is now price + $5', minimumBid(state), 1505)
-  ok('a $4 raise is refused', bidProblem(state, state.auction!.landedBy, 1504) !== null)
-  ok('a $5 raise is allowed', bidProblem(state, state.auction!.landedBy, 1505) === null)
+  check('the minimum is now price + $50', minimumBid(state), 1550)
+  ok('a $49 raise is refused', bidProblem(state, state.auction!.landedBy, 1549) !== null)
+  ok('a $50 raise is allowed', bidProblem(state, state.auction!.landedBy, 1550) === null)
   ok('any bigger number is allowed too', bidProblem(state, state.auction!.landedBy, 2777) === null)
-  ok('a fraction of a dollar is not', bidProblem(state, state.auction!.landedBy, 1505.5) !== null)
+  ok('a fraction of a dollar is not', bidProblem(state, state.auction!.landedBy, 1550.5) !== null)
 }
 
 {
