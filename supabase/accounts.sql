@@ -23,7 +23,16 @@
 --     door needs a bolt.
 -- ===========================================================================
 
+-- pgcrypto gives us bcrypt. Supabase normally has it already, in the
+-- `extensions` schema; this installs it there if some project does not.
 create extension if not exists pgcrypto with schema extensions;
+
+-- The hashing calls below are deliberately UNQUALIFIED. Every function here
+-- pins `search_path = public, extensions`, so `crypt()` is found whichever of
+-- the two schemas pgcrypto happens to live in. Writing `extensions.crypt()`
+-- would be the better habit in general, but it breaks outright on a project
+-- where pgcrypto was installed into `public` instead, and that failure looks
+-- like the whole script never having run.
 
 create table if not exists public.business_accounts (
   id             uuid primary key default gen_random_uuid(),
@@ -94,7 +103,7 @@ begin
   values (
     trim(p_username),
     v_key,
-    extensions.crypt(p_password, extensions.gen_salt('bf', 10)),
+    crypt(p_password, gen_salt('bf', 10)),
     coalesce(nullif(trim(coalesce(p_avatar, '')), ''), 'cat')
   )
   returning * into v_row;
@@ -139,7 +148,7 @@ begin
     );
   end if;
 
-  if extensions.crypt(coalesce(p_password, ''), v_row.password_hash) <> v_row.password_hash then
+  if crypt(coalesce(p_password, ''), v_row.password_hash) <> v_row.password_hash then
     update public.business_accounts
        set failed_tries = failed_tries + 1,
            locked_until = case when failed_tries + 1 >= 10
@@ -178,7 +187,7 @@ declare
 begin
   select * into v_row from public.business_accounts where username_key = v_key;
   if v_row.id is null
-     or extensions.crypt(coalesce(p_password, ''), v_row.password_hash) <> v_row.password_hash then
+     or crypt(coalesce(p_password, ''), v_row.password_hash) <> v_row.password_hash then
     return json_build_object('ok', false, 'error', 'Wrong username or password.');
   end if;
 
