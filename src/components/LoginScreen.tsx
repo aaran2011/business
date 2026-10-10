@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { AVATARS, DEFAULT_AVATAR_ID, avatarById } from '../data/avatars'
 import {
   accountsPossible,
   passwordProblem,
+  probeAccounts,
   saveProfile,
   signIn,
   signUp,
@@ -33,19 +34,56 @@ export function LoginScreen({ onSignedIn }: { onSignedIn: (profile: Profile) => 
   const [password, setPassword] = useState('')
   const [avatarId, setAvatarId] = useState(DEFAULT_AVATAR_ID)
   const [error, setError] = useState<string | null>(null)
+  const [detail, setDetail] = useState<string | null>(null)
   const [setupNeeded, setSetupNeeded] = useState(false)
   const [busy, setBusy] = useState(false)
 
   const chosen = avatarById(avatarId)
 
+  /*
+    Ask the server, once, while they are picking a character.
+
+    It does two jobs. If the database side is missing it says so NOW, rather
+    than after they have filled the form in and waited. And it wakes a
+    sleeping project up, so the real call a few seconds later is a quick one
+    instead of the slow first request that made signing in feel broken.
+  */
+  const [serverState, setServerState] = useState<'checking' | 'ready' | 'setup' | 'unreachable'>(
+    'checking',
+  )
+  useEffect(() => {
+    let live = true
+    probeAccounts().then(
+      (state) => live && setServerState(state),
+      () => live && setServerState('unreachable'),
+    )
+    return () => {
+      live = false
+    }
+  }, [])
+
+  /*
+    WHEN a problem is shown, not whether.
+
+    Nobody wants "at least 3 characters" thrown at them after typing one
+    letter of a six-letter name. So the check runs when they STOP — a short
+    pause, or leaving the box — and the moment they type again it goes quiet.
+    The pause is short enough that it never feels like waiting for permission,
+    and the check itself is two string tests, so there is nothing to lag.
+  */
+  const settled = useSettled(username, tab)
+  const settledPass = useSettled(password, tab)
+
   const submit = async () => {
     setError(null)
+    setDetail(null)
     setBusy(true)
     try {
       const result =
         tab === 'new' ? await signUp(username, password, avatarId) : await signIn(username, password)
       if (!result.ok) {
         setError(result.error)
+        setDetail(result.detail ?? null)
         setSetupNeeded(Boolean(result.setupNeeded))
         return
       }
@@ -124,13 +162,14 @@ export function LoginScreen({ onSignedIn }: { onSignedIn: (profile: Profile) => 
               autoCapitalize="none"
               autoCorrect="off"
               spellCheck={false}
-              placeholder="aaran"
+              placeholder="e.g. Alex"
               onChange={(e) => setUsername(e.target.value)}
+              onBlur={() => settled.showNow()}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && ready && !busy) void submit()
               }}
             />
-            {username !== '' && nameProblem && tab === 'new' && (
+            {settled.done && username !== '' && nameProblem && tab === 'new' && (
               <span className="login-problem">{nameProblem}</span>
             )}
           </div>
@@ -147,14 +186,32 @@ export function LoginScreen({ onSignedIn }: { onSignedIn: (profile: Profile) => 
               value={password}
               autoComplete={tab === 'new' ? 'new-password' : 'current-password'}
               onChange={(e) => setPassword(e.target.value)}
+              onBlur={() => settledPass.showNow()}
               onKeyDown={(e) => {
                 if (e.key === 'Enter' && ready && !busy) void submit()
               }}
             />
-            {password !== '' && passProblem && tab === 'new' && (
+            {settledPass.done && password !== '' && passProblem && tab === 'new' && (
               <span className="login-problem">{passProblem}</span>
             )}
           </div>
+
+          {serverState === 'unreachable' && !error && (
+            <div className="login-error">
+              The account server is not answering from this device. Signing in will not work until
+              it does — check the connection.
+            </div>
+          )}
+
+          {serverState === 'setup' && !error && (
+            <div className="login-error">
+              Accounts have not been switched on for this game yet, so nobody can sign in.
+              <div className="login-setup">
+                Run <code>supabase/accounts.sql</code> once in the Supabase SQL editor — it is in
+                the repository, and it is one paste.
+              </div>
+            </div>
+          )}
 
           {error && (
             <div className="login-error">
@@ -166,6 +223,7 @@ export function LoginScreen({ onSignedIn }: { onSignedIn: (profile: Profile) => 
                   can sign in until that is done.
                 </div>
               )}
+              {detail && <div className="login-detail">Server said: {detail}</div>}
             </div>
           )}
 
@@ -177,12 +235,49 @@ export function LoginScreen({ onSignedIn }: { onSignedIn: (profile: Profile) => 
           )}
 
           <button className="btn btn-primary login-go" disabled={!ready || busy} onClick={submit}>
-            {busy ? 'One moment…' : tab === 'new' ? 'Create account' : 'Sign in'}
+            {busy
+              ? serverState === 'ready'
+                ? 'One moment…'
+                : 'Waking the server…'
+              : tab === 'new'
+                ? 'Create account'
+                : 'Sign in'}
           </button>
         </div>
       </div>
     </div>
   )
+}
+
+/**
+ * Whether the value has stopped changing — a short pause after the last
+ * keystroke, or the moment the box is left.
+ *
+ * Returns a plain object on purpose. An earlier version returned the boolean
+ * with a method hung off it, which boxes it: `new Boolean(false)` is TRUTHY,
+ * so every message would have shown from the first keystroke — exactly the
+ * thing this hook exists to prevent.
+ */
+function useSettled(value: string, resetKey: string): { done: boolean; showNow: () => void } {
+  const [done, setDone] = useState(false)
+  const timer = useRef<number | undefined>(undefined)
+
+  useEffect(() => {
+    setDone(false)
+    window.clearTimeout(timer.current)
+    if (value === '') return
+    // Long enough not to interrupt somebody mid-word, short enough that the
+    // answer feels immediate once they stop.
+    timer.current = window.setTimeout(() => setDone(true), 550)
+    return () => window.clearTimeout(timer.current)
+  }, [value])
+
+  // Switching between Create account and Sign in starts the form again.
+  useEffect(() => {
+    setDone(false)
+  }, [resetKey])
+
+  return { done, showNow: () => setDone(true) }
 }
 
 /**

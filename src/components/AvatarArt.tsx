@@ -936,70 +936,6 @@ const ART: Record<string, (u: string) => JSX.Element> = {
   ),
 
   // ---------------------------------------------------------------- cars --
-  bicycle: (u) => (
-    <>
-      <defs>
-        <linearGradient id={`${u}-fr`} x1="0.1" y1="0" x2="0.9" y2="1">
-          <stop offset="0" stopColor="#ff9b4e" />
-          <stop offset="0.5" stopColor="#f2762a" />
-          <stop offset="1" stopColor="#bd4f10" />
-        </linearGradient>
-      </defs>
-      {/* wheels: tyre, spokes, hub — the same size as each other */}
-      {[13.4, 34.6].map((cx) => (
-        <g key={cx}>
-          <circle cx={cx} cy="31" r="10.4" fill="none" stroke="#23262e" strokeWidth="2.1" />
-          <circle cx={cx} cy="31" r="9.4" fill="none" stroke="#8d97a6" strokeWidth="0.7" />
-          <g stroke="#b9c2cf" strokeWidth="0.55" opacity="0.9">
-            {Array.from({ length: 10 }).map((_, i) => {
-              const a = (i * Math.PI) / 5
-              return (
-                <line
-                  key={i}
-                  x1={cx}
-                  y1="31"
-                  x2={cx + 9.2 * Math.cos(a)}
-                  y2={31 + 9.2 * Math.sin(a)}
-                />
-              )
-            })}
-          </g>
-          <circle cx={cx} cy="31" r="1.5" fill="#7b8595" />
-          <path
-            d={`M${cx - 7.6} ${24.6}a10.4 10.4 0 0 1 7 -3`}
-            stroke="#fff"
-            strokeOpacity="0.4"
-            strokeWidth="1.1"
-            strokeLinecap="round"
-            fill="none"
-          />
-        </g>
-      ))}
-      {/* diamond frame */}
-      <g stroke={`url(#${u}-fr)`} strokeWidth="2.2" strokeLinecap="round" fill="none">
-        <path d="M13.4 31 21.4 31 27 18.4" />
-        <path d="M21.4 31 29.4 18.4 34.6 31" />
-        <path d="M21.4 31 27 18.4" />
-        <path d="M29.4 18.4 27 18.4" />
-      </g>
-      {/* fork and handlebars */}
-      <path d="M34.6 31 30.6 16.6" stroke="#5a6273" strokeWidth="1.8" strokeLinecap="round" fill="none" />
-      <path d="M30.6 16.6c-1.8-1.1-3.4-1.2-4.8-.3" stroke="#3b414f" strokeWidth="1.7" strokeLinecap="round" fill="none" />
-      <circle cx="30.6" cy="16.6" r="1.2" fill="#4d5466" />
-      {/* saddle */}
-      <path d="M22.6 16.4c2.8 0 4.6.8 4.6 1.8s-1.4 1.4-3.4 1.4-4.4-.6-4.4-1.6.8-1.6 3.2-1.6z" fill="#2f3340" />
-      <path d="M22.6 16.4c2.2 0 3.7.5 4.3 1.1-1-.4-2.4-.6-4-.6-1.2 0-2.3.1-3.1.3.5-.5 1.4-.8 2.8-.8z" fill="#5d6373" />
-      <path d="M21.4 19.6V31" stroke="#f2762a" strokeWidth="2.2" strokeLinecap="round" />
-      {/* chainring, crank and pedal */}
-      <circle cx="21.4" cy="31" r="3.4" fill="#9aa3b2" />
-      <circle cx="21.4" cy="31" r="2.3" fill="#cfd6e1" />
-      <circle cx="21.4" cy="31" r="1" fill="#7b8595" />
-      <path d="M21.4 31 19 34.6" stroke="#444b5c" strokeWidth="1.4" strokeLinecap="round" />
-      <path d="M17.4 34.6h3" stroke="#2f3340" strokeWidth="1.6" strokeLinecap="round" />
-      <path d="M21.4 31h13.2" stroke="#2f3340" strokeWidth="1" strokeLinecap="round" opacity="0.75" />
-    </>
-  ),
-
   racer: (u) => (
     <>
       <defs>
@@ -1340,6 +1276,44 @@ const ART: Record<string, (u: string) => JSX.Element> = {
   ),
 }
 
+
+/**
+ * Centring, measured rather than guessed.
+ *
+ * Each drawing was rasterised and its painted bounding box found, then moved
+ * so that box sits in the middle of the disc. He was right that they were
+ * off: the cars sat five pixels low with a gap under them, and the cat and
+ * the fox sat high.
+ *
+ * A character whose ink deliberately runs to an edge — a portrait's
+ * shoulders, a flower's stem, the lotus's water — is NOT moved on that axis.
+ * Centring those would float them, leaving a bare crescent at the bottom of
+ * the disc, which is worse than the thing being fixed.
+ *
+ * Re-measure after changing any artwork; the numbers are in the 48-unit
+ * viewBox, positive meaning right and down.
+ */
+const NUDGE: Record<string, [number, number]> = {
+  // animals — head portraits, free of every edge, so centred both ways
+  cat: [0, 2.1],
+  panda: [0, 1.1],
+  fox: [0, 3.4],
+  owl: [0, 1.5],
+  penguin: [0, -3.8],
+  elephant: [0, -1.6],
+  turtle: [0, -2],
+  dog: [0, -0.8],
+  // vehicles — all of them floated low
+  racer: [-0.3, -5.1],
+  taxi: [-0.5, -2.5],
+  bus: [0, -2.9],
+  pickup: [0, -5.3],
+  convertible: [0, -3],
+  van: [0.5, -2.1],
+  // flowers and people keep their footing on the bottom edge; only sideways
+  bluebell: [0.5, 0],
+}
+
 /**
  * One character, drawn at whatever size the caller asks for.
  *
@@ -1366,6 +1340,7 @@ export function Avatar({
   */
   const u = `av${useId().replace(/[^a-zA-Z0-9_-]/g, '')}`
   const draw = ART[def.id] ?? ART.cat
+  const offset = NUDGE[def.id]
   return (
     <svg
       viewBox="0 0 48 48"
@@ -1387,8 +1362,11 @@ export function Avatar({
       </defs>
       <circle cx="24" cy="24" r="24" fill={def.tint} />
       <circle cx="24" cy="24" r="24" fill={`url(#${u}-disc)`} />
-      {/* Clipped to the disc, so a helmet or a wheel cannot run off the edge. */}
-      <g clipPath={`url(#${u}-clip)`}>{draw(u)}</g>
+      {/* Clipped to the disc, so a helmet or a wheel cannot run off the edge,
+          and nudged so the drawing sits in the middle of it. */}
+      <g clipPath={`url(#${u}-clip)`}>
+        <g transform={offset ? `translate(${offset[0]} ${offset[1]})` : undefined}>{draw(u)}</g>
+      </g>
       {/* A faint inner edge, so the disc reads as a surface rather than a hole. */}
       <circle cx="24" cy="24" r="23.2" fill="none" stroke={DARK} strokeOpacity="0.09" strokeWidth="1.6" />
     </svg>

@@ -38,12 +38,14 @@ export type AuthResult =
       error: string
       /** The database side has not been set up yet, which is worth saying. */
       setupNeeded?: boolean
+      /**
+       * The server's own words, shown small under the message. A player does
+       * not need it; anybody working out why it failed needs nothing else.
+       */
+      detail?: string
     }
 
 const STORE_KEY = 'business.profile'
-
-/** How long to wait for the account server before saying it is not there. */
-const ACCOUNT_TIMEOUT_MS = 7000
 
 /**
  * The signed-in player on this device, if there is one.
@@ -104,7 +106,7 @@ export function accountsPossible(): boolean {
 
 /**
  * The checks the database makes, repeated here so the form can say what is
- * wrong before anything is sent. The database is still the authority — see
+ * wrong without a round trip. The database is still the authority — see
  * `business_name_problem` in the SQL.
  */
 export function usernameProblem(username: string): string | null {
@@ -120,6 +122,19 @@ export function passwordProblem(password: string): string | null {
   return null
 }
 
+/**
+ * How long to wait before giving up on one attempt.
+ *
+ * Twenty seconds, not seven. A Supabase project that has been idle takes its
+ * time over the first request, and the old seven-second limit was cutting that
+ * off and then blaming the player's connection for it — "it is taking too long
+ * and then it says could not reach the account server" was exactly this.
+ */
+const ACCOUNT_TIMEOUT_MS = 20000
+
+/** A second go, because a cold server almost always answers the next one. */
+const RETRY_DELAY_MS = 400
+
 interface RpcAnswer {
   ok?: boolean
   error?: string
@@ -127,12 +142,121 @@ interface RpcAnswer {
   avatar?: string
 }
 
+/** What went wrong, told apart so the message can be worth reading. */
+type Trouble =
+  | { kind: 'timeout' }
+  | { kind: 'unreachable'; detail?: string }
+  | { kind: 'missing' }
+  | { kind: 'refused'; detail: string }
+  | { kind: 'server'; detail: string }
+
+function describe(trouble: Trouble): AuthResult {
+  switch (trouble.kind) {
+    case 'missing':
+      return {
+        ok: false,
+        error: 'Accounts have not been switched on for this game yet.',
+        setupNeeded: true,
+      }
+    case 'timeout':
+      return {
+        ok: false,
+        error:
+          'The account server did not answer. If it has been asleep it may need another go — try once more.',
+        detail: 'timed out twice',
+      }
+    case 'refused':
+      return {
+        ok: false,
+        error: 'The account server refused this game’s key.',
+        setupNeeded: true,
+        detail: trouble.detail,
+      }
+    case 'server':
+      return { ok: false, error: 'The account server had a problem.', detail: trouble.detail }
+    default:
+      return {
+        ok: false,
+        error: 'Could not reach the account server. Check the connection.',
+        detail: trouble.detail,
+      }
+  }
+}
+
+/** One attempt. Returns the answer, or what went wrong with it. */
+async function attempt(
+  fn: string,
+  args: Record<string, string>,
+): Promise<{ answer: RpcAnswer } | { trouble: Trouble }> {
+  const abort = new AbortController()
+  const giveUp = window.setTimeout(() => abort.abort(), ACCOUNT_TIMEOUT_MS)
+
+  try {
+    const { data, error } = await supabase().rpc(fn, args).abortSignal(abort.signal)
+
+    if (error) {
+      const text = `${error.code ?? ''} ${error.message} ${error.details ?? ''} ${
+        error.hint ?? ''
+      }`.toLowerCase()
+      const detail = (error.code ? `${error.code}: ${error.message}` : error.message).slice(0, 160)
+
+      // The SQL has not been run, or PostgREST has not noticed it yet.
+      if (
+        error.code === '42883' ||
+        error.code === 'PGRST202' ||
+        text.includes('could not find the function') ||
+        text.includes('schema cache') ||
+        text.includes('does not exist')
+      ) {
+        return { trouble: { kind: 'missing' } }
+      }
+      // The key is wrong, or EXECUTE was never granted to anon.
+      if (
+        error.code === '42501' ||
+        error.code === 'PGRST301' ||
+        text.includes('permission denied') ||
+        text.includes('jwt') ||
+        text.includes('api key')
+      ) {
+        return { trouble: { kind: 'refused', detail } }
+      }
+      /*
+        The request never arrived. supabase-js does not throw for this — it
+        hands back the fetch failure as an ordinary error object, which is why
+        "TypeError: Failed to fetch" was being reported as a problem at the
+        server's end rather than as not reaching one.
+      */
+      if (
+        !error.code ||
+        text.includes('failed to fetch') ||
+        text.includes('fetch failed') ||
+        text.includes('load failed') ||
+        text.includes('networkerror') ||
+        text.includes('network request failed')
+      ) {
+        return { trouble: { kind: 'unreachable', detail } }
+      }
+      return { trouble: { kind: 'server', detail } }
+    }
+
+    return { answer: (data ?? {}) as RpcAnswer }
+  } catch (thrown) {
+    const name = (thrown as { name?: string })?.name
+    if (name === 'AbortError' || abort.signal.aborted) return { trouble: { kind: 'timeout' } }
+    const message = (thrown as { message?: string })?.message
+    return { trouble: { kind: 'unreachable', detail: message?.slice(0, 160) } }
+  } finally {
+    window.clearTimeout(giveUp)
+  }
+}
+
 /**
- * One call to one of the three functions.
+ * One call to one of the three functions, with a second go if the first one
+ * never lands.
  *
- * Every failure comes back as a sentence a player can act on. A missing
- * function means the SQL has not been run, which is a setup problem rather
- * than a wrong password, and is reported as such.
+ * A failure comes back as a sentence a player can act on, and `detail` carries
+ * the server's own words for anyone trying to work out why. Nothing here ever
+ * throws: the caller always gets an answer it can show.
  */
 async function call(fn: string, args: Record<string, string>): Promise<AuthResult> {
   if (!accountsPossible()) {
@@ -143,53 +267,53 @@ async function call(fn: string, args: Record<string, string>): Promise<AuthResul
     }
   }
 
+  let result = await attempt(fn, args)
+
   /*
-    Give up after a few seconds rather than leaving somebody watching "One
-    moment…". Without this the browser's own timeout runs to twenty seconds,
-    which on a bad connection feels like the game has hung — and the answer
-    they need ("play without an account") is one tap away the whole time.
+    One more go, but only for a request that failed FAST. A dropped or
+    refused connection is often a one-off and the next one lands. A request
+    that sat there for the full twenty seconds is not going to be helped by
+    another twenty — that would just double a wait that already felt broken.
   */
-  const abort = new AbortController()
-  const giveUp = window.setTimeout(() => abort.abort(), ACCOUNT_TIMEOUT_MS)
-
-  try {
-    const { data, error } = await supabase().rpc(fn, args).abortSignal(abort.signal)
-
-    if (error) {
-      const text = `${error.message} ${error.details ?? ''} ${error.hint ?? ''}`.toLowerCase()
-      const missing =
-        error.code === '42883' ||
-        error.code === 'PGRST202' ||
-        text.includes('does not exist') ||
-        text.includes('could not find the function') ||
-        text.includes('schema cache')
-      if (missing) {
-        return {
-          ok: false,
-          error:
-            'Accounts are not switched on for this game yet. Until they are, you can play without one.',
-          setupNeeded: true,
-        }
-      }
-      return { ok: false, error: 'Could not reach the account server. Check the connection.' }
-    }
-
-    const answer = (data ?? {}) as RpcAnswer
-    if (!answer.ok) {
-      return { ok: false, error: answer.error || 'That did not work.' }
-    }
-    return {
-      ok: true,
-      profile: {
-        username: answer.username ?? args.p_username,
-        avatarId: answer.avatar ?? DEFAULT_AVATAR_ID,
-      },
-    }
-  } catch {
-    return { ok: false, error: 'Could not reach the account server. Check the connection.' }
-  } finally {
-    window.clearTimeout(giveUp)
+  if ('trouble' in result && result.trouble.kind === 'unreachable') {
+    await new Promise((resolve) => window.setTimeout(resolve, RETRY_DELAY_MS))
+    result = await attempt(fn, args)
   }
+
+  if ('trouble' in result) return describe(result.trouble)
+
+  const answer = result.answer
+  if (!answer.ok) return { ok: false, error: answer.error || 'That did not work.' }
+  return {
+    ok: true,
+    profile: {
+      username: answer.username ?? args.p_username,
+      avatarId: answer.avatar ?? DEFAULT_AVATAR_ID,
+    },
+  }
+}
+
+/**
+ * Ask the server, quietly, whether accounts work here.
+ *
+ * Called when the sign-in screen opens, and it earns its keep twice over: it
+ * tells the player that the database side is missing BEFORE they have picked a
+ * character and typed a password, and it wakes a sleeping project up so that
+ * the real call a few seconds later is a fast one rather than the slow first
+ * request everybody was waiting on.
+ *
+ * The username it asks about cannot exist, and a name that does not exist is
+ * not counted as a wrong guess, so this locks nobody out.
+ */
+export async function probeAccounts(): Promise<'ready' | 'setup' | 'unreachable'> {
+  if (!accountsPossible()) return 'setup'
+  const result = await attempt('business_login', {
+    p_username: '__probe__',
+    p_password: '__probe__',
+  })
+  if ('answer' in result) return 'ready'
+  if (result.trouble.kind === 'missing' || result.trouble.kind === 'refused') return 'setup'
+  return 'unreachable'
 }
 
 export function signUp(username: string, password: string, avatarId: string): Promise<AuthResult> {

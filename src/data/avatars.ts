@@ -58,7 +58,6 @@ export const AVATARS: AvatarDef[] = [
   { id: 'astronaut', name: 'Astronaut', group: 'person', tint: '#e5e9fb' },
   { id: 'turtle', name: 'Turtle', group: 'animal', tint: '#e2f4ea' },
   { id: 'bluebell', name: 'Bluebell', group: 'flower', tint: '#e3eafd' },
-  { id: 'bicycle', name: 'Bicycle', group: 'car', tint: '#fff1e6' },
   { id: 'firefighter', name: 'Firefighter', group: 'person', tint: '#ffe4df' },
   { id: 'dog', name: 'Dog', group: 'animal', tint: '#f6e6d2' },
 ]
@@ -66,14 +65,12 @@ export const AVATARS: AvatarDef[] = [
 export const DEFAULT_AVATAR_ID = 'cat'
 
 /**
- * Characters that were renamed, so a profile saved before the change still
- * finds its picture instead of silently becoming a cat.
+ * An id that is no longer in the gallery still has to resolve to something,
+ * or a profile saved before a change would render nothing at all. The scooter
+ * became the bicycle and the bicycle was then dropped, so both land here.
  */
-const RENAMED: Record<string, string> = { scooter: 'bicycle' }
-
 export function avatarById(id: string | undefined | null): AvatarDef {
-  const wanted = id ? (RENAMED[id] ?? id) : id
-  return AVATARS.find((a) => a.id === wanted) ?? AVATARS.find((a) => a.id === DEFAULT_AVATAR_ID)!
+  return AVATARS.find((a) => a.id === id) ?? AVATARS.find((a) => a.id === DEFAULT_AVATAR_ID)!
 }
 
 /** The labels above each run of the gallery, for anyone scanning for a kind. */

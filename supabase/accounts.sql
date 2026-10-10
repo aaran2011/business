@@ -201,3 +201,13 @@ revoke all on function public.business_set_avatar(text, text, text) from public;
 grant execute on function public.business_signup(text, text, text)     to anon, authenticated;
 grant execute on function public.business_login(text, text)            to anon, authenticated;
 grant execute on function public.business_set_avatar(text, text, text) to anon, authenticated;
+
+-- ---------------------------------------------------------------------------
+-- Tell the API layer to look again.
+--
+-- PostgREST answers from a cached picture of the schema. Without this it can
+-- keep saying "could not find the function ... in the schema cache" for a
+-- while after the functions above exist, which looks exactly like the SQL
+-- never having been run.
+-- ---------------------------------------------------------------------------
+notify pgrst, 'reload schema';
