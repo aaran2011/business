@@ -30,8 +30,15 @@
  * "no captcha configured" and carries on, rather than locking everybody out.
  */
 
-/** The public site key. Empty means reCAPTCHA is switched off. */
-export const RECAPTCHA_SITE_KEY = ''
+/**
+ * The public site key. Empty switches reCAPTCHA off completely.
+ *
+ * Typed `string` on purpose: without it TypeScript narrows this to the one
+ * literal it is set to and then calls `captchaEnabled()` a mistake, because
+ * the comparison "can never be true". The whole point is that it can be
+ * emptied again.
+ */
+export const RECAPTCHA_SITE_KEY: string = '6LejS-stAAAAABb9wHeGEVw1PFntlcpQMjy9mKcY'
 
 /** Widget rendering is reCAPTCHA v2's "I'm not a robot" checkbox. */
 const SCRIPT_URL = 'https://www.google.com/recaptcha/api.js?render=explicit'
