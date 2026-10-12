@@ -1,13 +1,15 @@
+import type { ReactNode } from 'react'
 import type { GameSettings } from '../data/settings'
 import { money } from '../engine/log'
 import type { GameAction, GameState } from '../engine/types'
 import type { Profile } from '../net/accounts'
 import { Avatar } from './AvatarArt'
+import { BiddingScene, ClassicScene, GlobeIcon, HomeBackdrop, RobotIcon, SwapIcon } from './HomeArt'
 
 export type PlayMode = 'online' | 'computer' | 'local'
 
 /**
- * The front door.
+ * The front door, after signing in.
  *
  * Two questions, in the order they matter: how the game is played, and who it
  * is played with. Both were asked for on 2026-10-09 — "the classic way" and
@@ -16,6 +18,11 @@ export type PlayMode = 'online' | 'computer' | 'local'
  * The game type is a setting, so it goes into the shared game state and every
  * phone that joins sees which game it is in. The play mode is about this
  * device — who answers for the seats — so it stays here.
+ *
+ * Redrawn 2026-10-13 to a design he specified: a dreamy landscape, frosted
+ * cards, far fewer words. The wording is his, cut to the bone; what it must
+ * NOT lose is any of the information the old screen carried, and the one
+ * place that bites is joining somebody else's game — see `onJoin` below.
  */
 export function HomeScreen({
   state,
@@ -37,6 +44,7 @@ export function HomeScreen({
   onSignOut: () => void
 }) {
   const mode = state.settings.mode
+  const { minPlayers, maxPlayers, startingCash, bidding } = state.settings
 
   const setMode = (next: 'classic' | 'bid') => {
     if (next === mode) return
@@ -46,130 +54,262 @@ export function HomeScreen({
   }
 
   return (
-    <div className="setup-shell">
-      <div className="setup-hero">
-        <h1>Business</h1>
-        <p>
-          {state.settings.minPlayers}–{state.settings.maxPlayers} players ·{' '}
-          {money(state.settings.startingCash)} each
-        </p>
-      </div>
+    <div className="home-shell">
+      <HomeBackdrop />
 
-      {/* Who you are. The character is what shows up beside your name on the
-          board, so it is the first thing on the screen. */}
-      <div className="panel me-panel">
-        <Avatar id={profile.avatarId} size={48} />
-        <div className="me-text">
-          <strong>{profile.username}</strong>
-          {/* Said plainly, because it is a promise: this device will not ask
-              again until they press the button next to it. */}
-          <span>Signed in — stays signed in until you log out</span>
-        </div>
-        <button className="btn btn-sm btn-ghost" onClick={onEditProfile}>
-          Change character
-        </button>
-        <button className="btn btn-sm btn-ghost" onClick={onSignOut}>
-          Log out
-        </button>
-      </div>
+      <div className="home-inner">
+        <header className="home-hero">
+          <h1>Business</h1>
+          <p>
+            {minPlayers}–{maxPlayers} players · {money(startingCash)} each
+          </p>
+        </header>
 
-      {/* ------------------------------------------------- how you play -- */}
-      <div className="panel">
-        <div className="panel-head">
-          <span>How you play</span>
-        </div>
-        <div className="panel-body mode-cards">
-          <button
-            className={`mode-card${mode === 'classic' ? ' is-on' : ''}`}
-            aria-pressed={mode === 'classic'}
+        <ProfileBar
+          profile={profile}
+          onEditProfile={onEditProfile}
+          onSignOut={onSignOut}
+        />
+
+        <SectionLabel>How you play</SectionLabel>
+        <div className="home-grid is-two">
+          <ChoiceCard
+            title="Classic"
+            selected={mode === 'classic'}
             onClick={() => setMode('classic')}
+            scene={<ClassicScene />}
           >
-            <span className="mode-card-title">Classic</span>
-            <span className="mode-card-body">
-              The game exactly as printed. Land on a country nobody owns and it is yours at the
-              printed price, or it stays with the Bank.
-            </span>
-          </button>
-          <button
-            className={`mode-card${mode === 'bid' ? ' is-on' : ''}`}
-            aria-pressed={mode === 'bid'}
+            Land on a country. It's yours at the printed price — or it stays with the Bank.
+          </ChoiceCard>
+
+          <ChoiceCard
+            title="Bidding"
+            selected={mode === 'bid'}
             onClick={() => setMode('bid')}
+            scene={<BiddingScene />}
           >
-            <span className="mode-card-title">Bidding</span>
-            <span className="mode-card-body">
-              Land on a country nobody owns and the whole table gets a go. Buy or skip — either way
-              the rest may bid, and the highest bid takes the card.
-            </span>
-          </button>
+            Land on a country nobody owns. Buy or skip — highest bid takes it.
+          </ChoiceCard>
         </div>
+
+        {/*
+          The rules of the auction, only while it is the chosen game. Short,
+          but not dropped: the clock and the minimum raise are the two numbers
+          a player needs before the first auction, not during it.
+        */}
         {mode === 'bid' && (
-          <div className="panel-body mode-note">
-            Bidding closes {state.settings.bidding.clockSeconds} seconds after the last bid, and
-            every bid puts the clock back to the top. The minimum raise is{' '}
-            {money(state.settings.bidding.minRaise)}, nobody may bid more than they hold, and the
-            clock can be changed to {state.settings.bidding.clockChoices.join(' or ')} seconds in
-            House Rules once you have started. No price, rent or other rule changes.
-          </div>
+          <p className="home-note">
+            {bidding.clockSeconds}s clock, reset by every bid · {money(bidding.minRaise)} minimum
+            raise · nobody bids past their cash · {bidding.clockChoices.join(' or ')}s in House
+            Rules · no price or rent changes
+          </p>
         )}
-      </div>
 
-      {/* ---------------------------------------------- who you play with -- */}
-      <div className="panel">
-        <div className="panel-head">
-          <span>Who you play with</span>
-        </div>
-        <div className="panel-body play-cards">
-          <button
-            className="play-card"
-            disabled={!multiplayerAvailable}
-            title={
-              multiplayerAvailable
-                ? undefined
-                : 'This build has no game server, so it cannot open a game to other devices.'
-            }
+        <SectionLabel>Who you play with</SectionLabel>
+        <div className="home-grid is-three">
+          <ChoiceCard
+            title="Online"
+            icon={<GlobeIcon />}
             onClick={() => onChoose('online')}
+            disabled={!multiplayerAvailable}
+            disabledReason="This build has no game server, so it cannot open a game to other devices."
+            /*
+              Joining lives HERE, inside the card it belongs to.
+
+              He asked for no "Put Code" bar along the bottom, and there is
+              none. But taking the bar away without putting the door anywhere
+              else would mean a game can be hosted and never joined, which is
+              half of online play gone. One quiet action on the card that is
+              already about playing with other people costs nothing and keeps
+              the screen the one place everything starts.
+            */
+            footer={
+              multiplayerAvailable ? (
+                <button
+                  type="button"
+                  className="card-link"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onJoin()
+                  }}
+                >
+                  Have a code? Join
+                </button>
+              ) : undefined
+            }
           >
-            <span className="play-card-icon" aria-hidden="true">
-              {'\u{1F310}'}
-            </span>
-            <span className="play-card-title">Online</span>
-            <span className="play-card-body">
-              Everyone on their own phone, anywhere. You get a code to share. Keep this device open
-              — it runs the game.
-            </span>
-          </button>
+            Play anywhere. Get a code to share. This device keeps it open.
+          </ChoiceCard>
 
-          <button className="play-card" onClick={() => onChoose('computer')}>
-            <span className="play-card-icon" aria-hidden="true">
-              {'\u{1F916}'}
-            </span>
-            <span className="play-card-title">Computer</span>
-            <span className="play-card-body">
-              Play against the machine. It buys, builds, pays its way out of Jail and bids, on the
-              same rules as you.
-            </span>
-          </button>
+          <ChoiceCard title="Computer" icon={<RobotIcon />} onClick={() => onChoose('computer')}>
+            Play against the machine. It buys, builds and bids on the same rules.
+          </ChoiceCard>
 
-          <button className="play-card" onClick={() => onChoose('local')}>
-            <span className="play-card-icon" aria-hidden="true">
-              {'\u{1F501}'}
-            </span>
-            <span className="play-card-title">Pass and play</span>
-            <span className="play-card-body">
-              Everybody round one device, handing it on. No code, no connection, works with no
-              internet at all.
-            </span>
-          </button>
+          <ChoiceCard title="Pass and play" icon={<SwapIcon />} onClick={() => onChoose('local')}>
+            Everyone on one device. No code, no connection. Works offline.
+          </ChoiceCard>
         </div>
-
-        {multiplayerAvailable && (
-          <div className="panel-body setup-actions">
-            <button className="btn" onClick={onJoin}>
-              Put Code — join someone else's game
-            </button>
-          </div>
-        )}
       </div>
     </div>
+  )
+}
+
+/** The thin lettered rule above each group of cards. */
+function SectionLabel({ children }: { children: ReactNode }) {
+  return (
+    <div className="home-label">
+      <span>{children}</span>
+      <i aria-hidden="true" />
+    </div>
+  )
+}
+
+/** Who is signed in, and the two things they can do about it. */
+function ProfileBar({
+  profile,
+  onEditProfile,
+  onSignOut,
+}: {
+  profile: Profile
+  onEditProfile: () => void
+  onSignOut: () => void
+}) {
+  return (
+    <div className="home-profile">
+      <span className="home-profile-face">
+        <Avatar id={profile.avatarId} size={44} />
+      </span>
+      <span className="home-profile-text">
+        <strong>{profile.username}</strong>
+        {/*
+          A promise, not a status line: this device will not ask again until
+          the button beside it is pressed. Said in two words, with the full
+          sentence kept as the title for anyone who wonders.
+        */}
+        <span className="home-signed" title="Stays signed in until you log out">
+          <i aria-hidden="true" /> Signed in
+        </span>
+      </span>
+      <button className="home-pill" onClick={onEditProfile}>
+        <PencilGlyph /> Change character
+      </button>
+      <button className="home-pill" onClick={onSignOut}>
+        <ExitGlyph /> Log out
+      </button>
+    </div>
+  )
+}
+
+/**
+ * One frosted card.
+ *
+ * Does both jobs on this screen: the wide "how you play" card with a scene
+ * across the top, and the narrow "who you play with" card with a drawn icon.
+ * `selected` is for the first kind, where the choice persists and has to be
+ * visible; the second kind acts at once, so its ring is an affordance saying
+ * "pick one" rather than a record of anything.
+ */
+function ChoiceCard({
+  title,
+  children,
+  onClick,
+  selected = false,
+  scene,
+  icon,
+  footer,
+  disabled = false,
+  disabledReason,
+}: {
+  title: string
+  children: ReactNode
+  onClick: () => void
+  selected?: boolean
+  scene?: ReactNode
+  icon?: ReactNode
+  footer?: ReactNode
+  disabled?: boolean
+  disabledReason?: string
+}) {
+  return (
+    <div
+      className={`home-card${selected ? ' is-on' : ''}${scene ? ' has-scene' : ''}${
+        disabled ? ' is-off' : ''
+      }`}
+      role="button"
+      tabIndex={disabled ? -1 : 0}
+      aria-pressed={selected}
+      aria-disabled={disabled}
+      title={disabled ? disabledReason : undefined}
+      onClick={() => !disabled && onClick()}
+      onKeyDown={(e) => {
+        if (disabled) return
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault()
+          onClick()
+        }
+      }}
+    >
+      <span className={`home-tick${selected ? ' is-on' : ''}`} aria-hidden="true">
+        {selected && (
+          <svg viewBox="0 0 24 24">
+            <path
+              d="M6 12.5 10.2 16.7 18 8.9"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="3"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </svg>
+        )}
+      </span>
+
+      {scene && <span className="home-card-scene">{scene}</span>}
+      {icon && <span className="home-card-icon">{icon}</span>}
+
+      <span className="home-card-text">
+        <strong>{title}</strong>
+        <span>{children}</span>
+      </span>
+
+      {footer && <span className="home-card-foot">{footer}</span>}
+    </div>
+  )
+}
+
+function PencilGlyph() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className="pill-glyph">
+      <path
+        d="M4 20h4L19 9a2.8 2.8 0 0 0-4-4L4 16z"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.9"
+        strokeLinejoin="round"
+      />
+      <path d="M14.5 5.5 18.5 9.5" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+function ExitGlyph() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true" className="pill-glyph">
+      <path
+        d="M14 4H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h8"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.9"
+        strokeLinecap="round"
+      />
+      <path
+        d="M13 12h8m0 0-3.2-3.2M21 12l-3.2 3.2"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.9"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
   )
 }

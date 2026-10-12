@@ -5685,3 +5685,423 @@ button:disabled {
     transform-origin: center top;
   }
 }
+
+/* ======================================================================== */
+/*  THE FRONT DOOR  —  the signed-in home screen                            */
+/* ======================================================================== */
+/*
+   A design he specified on 2026-10-13: dreamy landscape, frosted glass, wide
+   desktop composition, far fewer words. Everything here is scoped under
+   `.home-shell`, so no other screen in the game changes by a pixel.
+
+   Built desktop-first, as asked — the grid is 2-up and 3-up at full width —
+   but it still has to survive a phone, because the sign-in screen before it
+   does and a dead end at 375px would be a worse failure than an imperfect
+   one. It collapses to a single column at the bottom of the file.
+*/
+
+.home-shell {
+  position: relative;
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  justify-content: center;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+/* The scene. Fixed behind everything, and never in the way of a click. */
+.home-backdrop {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: -1;
+  pointer-events: none;
+}
+
+.home-inner {
+  width: min(1180px, 100%);
+  padding: clamp(18px, 3.2vh, 40px) clamp(16px, 4vw, 40px) clamp(20px, 3.4vh, 44px);
+  display: grid;
+  /* Scales with the window's HEIGHT, not its width: the thing that decides
+     whether this fits on one screen is how tall the laptop is. */
+  gap: clamp(11px, 1.8vh, 18px);
+  align-content: start;
+}
+
+/* ---- the title ---- */
+
+.home-hero {
+  text-align: center;
+  margin-bottom: 2px;
+}
+
+.home-hero h1 {
+  margin: 0;
+  font-size: clamp(40px, 5vw, 66px);
+  font-weight: 900;
+  letter-spacing: -0.028em;
+  line-height: 1.02;
+  background: linear-gradient(104deg, #f08a2c 0%, #e8743c 32%, #8d7fb8 68%, #6f7fc0 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.home-hero p {
+  margin: 7px 0 0;
+  font-size: clamp(13.5px, 1.2vw, 16px);
+  font-weight: 600;
+  color: #5b6f8c;
+}
+
+/* ---- the signed-in bar ---- */
+
+.home-profile {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 13px 16px;
+  border-radius: 26px;
+  background: rgba(255, 255, 255, 0.52);
+  border: 1px solid rgba(255, 255, 255, 0.75);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.85) inset,
+    0 14px 40px -18px rgba(53, 78, 120, 0.45);
+  backdrop-filter: blur(18px) saturate(1.3);
+  -webkit-backdrop-filter: blur(18px) saturate(1.3);
+}
+
+.home-profile-face {
+  flex: none;
+  display: grid;
+  place-items: center;
+  padding: 3px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.7);
+  box-shadow: 0 4px 14px -6px rgba(53, 78, 120, 0.5);
+}
+
+.home-profile-text {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+  margin-right: auto;
+}
+
+.home-profile-text strong {
+  font-size: 17px;
+  font-weight: 800;
+  color: #22334f;
+  letter-spacing: -0.01em;
+}
+
+.home-signed {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #5b7086;
+  cursor: help;
+}
+
+.home-signed i {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #35c07a;
+  box-shadow: 0 0 0 3px rgba(53, 192, 122, 0.18);
+}
+
+.home-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  padding: 9px 16px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.8);
+  background: rgba(255, 255, 255, 0.62);
+  color: #3b4f70;
+  font-size: 13px;
+  font-weight: 700;
+  box-shadow: 0 6px 18px -10px rgba(53, 78, 120, 0.55);
+  transition: 0.16s ease;
+}
+
+.home-pill:hover {
+  background: rgba(255, 255, 255, 0.92);
+  transform: translateY(-1px);
+  box-shadow: 0 10px 24px -12px rgba(53, 78, 120, 0.6);
+}
+
+.pill-glyph {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  opacity: 0.75;
+}
+
+/* ---- section labels ---- */
+
+.home-label {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 4px;
+}
+
+.home-label span {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.17em;
+  text-transform: uppercase;
+  color: #6a7f9c;
+}
+
+.home-label i {
+  flex: 1;
+  height: 1px;
+  background: linear-gradient(90deg, rgba(120, 146, 180, 0.4), rgba(120, 146, 180, 0));
+}
+
+/* ---- the cards ---- */
+
+.home-grid {
+  display: grid;
+  gap: 18px;
+}
+
+.home-grid.is-two {
+  grid-template-columns: repeat(2, 1fr);
+}
+
+.home-grid.is-three {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.home-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  border-radius: 24px;
+  background: rgba(255, 255, 255, 0.5);
+  border: 1.5px solid rgba(255, 255, 255, 0.72);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.85) inset,
+    0 18px 44px -22px rgba(53, 78, 120, 0.5);
+  backdrop-filter: blur(18px) saturate(1.3);
+  -webkit-backdrop-filter: blur(18px) saturate(1.3);
+  text-align: left;
+  cursor: pointer;
+  transition: 0.18s cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+
+.home-card:hover,
+.home-card:focus-visible {
+  transform: translateY(-3px);
+  background: rgba(255, 255, 255, 0.66);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.9) inset,
+    0 26px 54px -24px rgba(53, 78, 120, 0.55);
+  outline: none;
+}
+
+.home-card:focus-visible {
+  border-color: rgba(240, 138, 44, 0.75);
+}
+
+/* The chosen way to play. Warm, because everything else here is cool. */
+.home-card.is-on {
+  background: linear-gradient(
+    160deg,
+    rgba(255, 240, 220, 0.82),
+    rgba(255, 228, 198, 0.62)
+  );
+  border-color: #f0a052;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.9) inset,
+    0 0 0 4px rgba(240, 160, 82, 0.16),
+    0 22px 50px -24px rgba(170, 100, 40, 0.5);
+}
+
+.home-card.is-off {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.home-card.is-off:hover {
+  transform: none;
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.85) inset,
+    0 18px 44px -22px rgba(53, 78, 120, 0.5);
+}
+
+/* the ring in the corner: empty on an unchosen card, filled on the chosen */
+.home-tick {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  border: 2px solid rgba(255, 255, 255, 0.95);
+  background: rgba(255, 255, 255, 0.4);
+  box-shadow: 0 2px 8px -3px rgba(53, 78, 120, 0.45);
+  z-index: 2;
+}
+
+.home-tick.is-on {
+  background: linear-gradient(180deg, #ffa94d, #f0841f);
+  border-color: #ffffff;
+  color: #fff;
+  box-shadow: 0 4px 12px -3px rgba(214, 120, 30, 0.7);
+}
+
+.home-tick svg {
+  width: 15px;
+  height: 15px;
+}
+
+.home-card-scene {
+  display: block;
+  margin: -16px -16px 0;
+  border-radius: 23px 23px 6px 6px;
+  overflow: hidden;
+}
+
+.card-scene {
+  display: block;
+  width: 100%;
+  /* Cropped to a band. Left to its own proportions it was 250px tall and
+     pushed the bottom row of cards off a laptop screen. */
+  height: clamp(116px, 10.6vw, 152px);
+}
+
+.home-card-icon {
+  display: grid;
+  place-items: center;
+  padding-top: 6px;
+}
+
+.play-icon {
+  width: 72px;
+  height: 72px;
+  display: block;
+  filter: drop-shadow(0 8px 14px rgba(53, 78, 120, 0.22));
+}
+
+.home-card-text {
+  display: grid;
+  gap: 6px;
+}
+
+.home-card-text strong {
+  font-size: 19px;
+  font-weight: 800;
+  color: #1d2e49;
+  letter-spacing: -0.015em;
+}
+
+.home-card-text > span {
+  font-size: 13.5px;
+  font-weight: 500;
+  line-height: 1.55;
+  color: #4e627d;
+}
+
+.home-card.has-scene .home-card-text strong {
+  font-size: 21px;
+}
+
+.home-card-foot {
+  margin-top: auto;
+  padding-top: 4px;
+}
+
+.card-link {
+  padding: 7px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(120, 150, 190, 0.3);
+  background: rgba(255, 255, 255, 0.55);
+  color: #3b63a0;
+  font-size: 12px;
+  font-weight: 700;
+  transition: 0.15s ease;
+}
+
+.card-link:hover {
+  background: #fff;
+  border-color: rgba(120, 150, 190, 0.6);
+}
+
+.home-note {
+  margin: -6px 2px 0;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.6;
+  color: #5f7490;
+}
+
+/* ---- narrower windows ---- */
+
+@media (max-width: 980px) {
+  .home-grid.is-three {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+@media (max-width: 720px) {
+  .home-grid.is-two,
+  .home-grid.is-three {
+    grid-template-columns: 1fr;
+  }
+
+  .home-profile {
+    flex-wrap: wrap;
+  }
+
+  .home-profile-text {
+    margin-right: 0;
+    flex: 1 1 140px;
+  }
+
+  .home-pill {
+    flex: 1 1 auto;
+    justify-content: center;
+  }
+
+  .play-icon {
+    width: 58px;
+    height: 58px;
+  }
+}
+
+/* Blur is expensive on a phone, and the backdrop behind it is busy. A flatter
+   card reads better there and scrolls without tearing. */
+@media (max-width: 600px) {
+  .home-card,
+  .home-profile {
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    background: rgba(255, 255, 255, 0.74);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .home-card,
+  .home-pill {
+    transition: none;
+  }
+
+  .home-card:hover,
+  .home-pill:hover {
+    transform: none;
+  }
+}
