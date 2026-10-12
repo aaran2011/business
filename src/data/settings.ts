@@ -171,6 +171,14 @@ export interface GameSettings {
     /** [PRINTED] Release on a total of 12 or more. */
     escapeTargetTotal: number
     /**
+     * How long the finished attempt stays on screen before play moves on.
+     *
+     * Counted from the moment the last die STOPS, not from the throw, so it
+     * is three seconds of looking at the number rather than three seconds of
+     * watching it spin. Pressing OK skips the wait.
+     */
+    resultHoldMs: number
+    /**
      * [NOT PRINTED] The printed rules only send players to Jail via UNO 3 and
      * Chance 10, and say nothing about landing on the Jail space by dice.
      *
@@ -282,6 +290,9 @@ export const DEFAULT_SETTINGS: GameSettings = {
     // All three rolls are taken in the one turn, pressed one at a time.
     escapeRollsPerTurn: 3,
     escapeTargetTotal: 12,
+    // "Make it a little slow: when the dice rolls the third number, then
+    // after 3 seconds or after you click Okay, the game moves on." 2026-10-12.
+    resultHoldMs: 3000,
     // Land on Jail and you are in Jail — his decision, not the printed set's.
     landingOnJailIsJustVisiting: false,
   },

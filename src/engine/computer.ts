@@ -82,6 +82,9 @@ export function computerAction(state: GameState, playerId: string): GameAction |
   const owedOk = (state.moneyToAck ?? []).find((a) => a.playerId === playerId)
   if (owedOk) return { type: 'ACK_MONEY', id: owedOk.id }
 
+  // A finished Jail attempt is read and acknowledged, not rolled again.
+  if (state.pendingJailResult?.playerId === playerId) return { type: 'ACK_JAIL_RESULT' }
+
   const owed = debtOwedBy(state, playerId)
   if (owed > 0) return payOffAction(state, playerId, owed)
 

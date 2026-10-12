@@ -8,7 +8,7 @@
  */
 
 import { COUNTRIES } from '../data/properties'
-import { addLog, money } from './log'
+import { addLog, money, notify } from './log'
 import { credit, transferMoney } from './payments'
 import { displayNameOf, getPlayer, mortgageValueOf } from './queries'
 import type { GameState } from './types'
@@ -57,6 +57,12 @@ export function mortgageProperty(state: GameState, playerId: string, propertyId:
     'mortgage',
     `${getPlayer(state, playerId).name} mortgaged ${displayNameOf(propertyId)} for ${money(check.amount)}.`,
   )
+  notify(
+    state,
+    playerId,
+    `${getPlayer(state, playerId).name} mortgaged ${displayNameOf(propertyId)} for ${money(check.amount)}.`,
+    'neutral',
+  )
   return true
 }
 
@@ -92,6 +98,12 @@ export function unmortgageProperty(
     state,
     'mortgage',
     `${getPlayer(state, playerId).name} lifted the mortgage on ${displayNameOf(propertyId)} for ${money(check.amount)}.`,
+  )
+  notify(
+    state,
+    playerId,
+    `${getPlayer(state, playerId).name} lifted the mortgage on ${displayNameOf(propertyId)} for ${money(check.amount)}.`,
+    'neutral',
   )
   return true
 }

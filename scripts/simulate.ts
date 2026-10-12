@@ -77,6 +77,10 @@ function assertInvariants(state: GameState, context: string) {
     }
   }
 
+  if (state.pendingJailResult && state.stage !== 'inJail') {
+    violate(`${context}: a jail result is waiting at stage ${state.stage}`)
+  }
+
   const active = state.players.filter((p) => !p.isOut)
   if (state.phase === 'playing' && active.length <= 1) {
     violate(`${context}: still playing with ${active.length} active player(s)`)
@@ -128,6 +132,8 @@ function chooseAction(state: GameState, rng: () => number): GameAction | null {
     }
 
     case 'inJail':
+      // A finished attempt waits to be read before the turn can end.
+      if (state.pendingJailResult) return { type: 'ACK_JAIL_RESULT' }
       // Pay when comfortable, otherwise take this turn's escape roll. The
       // attempt runs over three turns, so this can be chosen repeatedly.
       return player.cash > 5000 && rng() < 0.35

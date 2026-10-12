@@ -10,6 +10,7 @@ import {
   usernameProblem,
   type Profile,
 } from '../net/accounts'
+import { captchaEnabled, loadCaptcha, RECAPTCHA_SITE_KEY } from '../net/recaptcha'
 import { Avatar } from './AvatarArt'
 
 /**
@@ -37,6 +38,8 @@ export function LoginScreen({ onSignedIn }: { onSignedIn: (profile: Profile) => 
   const [detail, setDetail] = useState<string | null>(null)
   const [setupNeeded, setSetupNeeded] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [captchaToken, setCaptchaToken] = useState('')
+  const [captchaBroken, setCaptchaBroken] = useState(false)
 
   const chosen = avatarById(avatarId)
 
@@ -80,11 +83,18 @@ export function LoginScreen({ onSignedIn }: { onSignedIn: (profile: Profile) => 
     setBusy(true)
     try {
       const result =
-        tab === 'new' ? await signUp(username, password, avatarId) : await signIn(username, password)
+        tab === 'new'
+          ? await signUp(username, password, avatarId, captchaToken)
+          : await signIn(username, password, captchaToken)
       if (!result.ok) {
         setError(result.error)
         setDetail(result.detail ?? null)
         setSetupNeeded(Boolean(result.setupNeeded))
+        // A reCAPTCHA token is good for one attempt only.
+        if (captchaEnabled()) {
+          setCaptchaToken('')
+          window.grecaptcha?.reset()
+        }
         return
       }
       saveProfile(result.profile)
@@ -96,8 +106,15 @@ export function LoginScreen({ onSignedIn }: { onSignedIn: (profile: Profile) => 
 
   const nameProblem = usernameProblem(username)
   const passProblem = passwordProblem(password)
-  const ready =
+  const filledIn =
     tab === 'in' ? username.trim() !== '' && password !== '' : !nameProblem && !passProblem
+  /*
+    The tick-box gates the button, unless it could not be loaded at all —
+    an ad blocker or a blocked network should not be able to shut the only
+    door into the game. The database is still the thing that decides; this
+    is only what the screen allows somebody to try.
+  */
+  const ready = filledIn && (!captchaEnabled() || captchaBroken || captchaToken !== '')
 
   return (
     <div className="setup-shell">
@@ -219,6 +236,14 @@ export function LoginScreen({ onSignedIn }: { onSignedIn: (profile: Profile) => 
             </div>
           )}
 
+          {captchaEnabled() && (
+            <CaptchaBox
+              onToken={setCaptchaToken}
+              onBroken={() => setCaptchaBroken(true)}
+              resetKey={tab}
+            />
+          )}
+
           {error && (
             <div className="login-error">
               {error}
@@ -253,6 +278,72 @@ export function LoginScreen({ onSignedIn }: { onSignedIn: (profile: Profile) => 
       </div>
     </div>
   )
+}
+
+/**
+ * The "I'm not a robot" box.
+ *
+ * Rendered explicitly rather than by Google's auto-scan, so it appears
+ * exactly here and nowhere else. If the script cannot be loaded — blocked
+ * network, ad blocker, Google down — it says so and tells the form to stop
+ * requiring a token, because a captcha that will not load must not be able to
+ * lock the only door into the game. Nothing is lost by that: the database
+ * checks the token independently, and refuses a signup that needs one.
+ */
+function CaptchaBox({
+  onToken,
+  onBroken,
+  resetKey,
+}: {
+  onToken: (token: string) => void
+  onBroken: () => void
+  resetKey: string
+}) {
+  const box = useRef<HTMLDivElement | null>(null)
+  const widget = useRef<number | null>(null)
+  const [failed, setFailed] = useState(false)
+
+  useEffect(() => {
+    let live = true
+    loadCaptcha().then(
+      (api) => {
+        if (!live || !box.current || widget.current !== null) return
+        widget.current = api.render(box.current, {
+          sitekey: RECAPTCHA_SITE_KEY,
+          callback: (token: string) => onToken(token),
+          'expired-callback': () => onToken(''),
+        })
+      },
+      () => {
+        if (!live) return
+        setFailed(true)
+        onBroken()
+      },
+    )
+    return () => {
+      live = false
+    }
+    // Rendered once; the widget is reset rather than re-rendered.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Switching between Create account and Sign in starts the challenge again.
+  useEffect(() => {
+    if (widget.current === null) return
+    window.grecaptcha?.reset(widget.current)
+    onToken('')
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resetKey])
+
+  if (failed) {
+    return (
+      <div className="login-hint captcha-failed">
+        The robot check could not be loaded, so it has been skipped here. The server still
+        checks it.
+      </div>
+    )
+  }
+  return <div className="captcha-box" ref={box} />
 }
 
 /**

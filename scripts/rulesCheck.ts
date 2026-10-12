@@ -29,6 +29,7 @@ import { computerAction } from '../src/engine/computer'
 import { diceTotal, rollDice } from '../src/engine/dice'
 import { createInitialState, gameReducer, makeGameCode, orderRollTurn } from '../src/engine/game'
 import { attemptJailEscape } from '../src/engine/jail'
+import { money } from '../src/engine/log'
 import { mortgageProperty, unmortgageProperty } from '../src/engine/mortgage'
 import { movePlayer } from '../src/engine/movement'
 import { charge } from '../src/engine/payments'
@@ -619,7 +620,14 @@ console.log('— Jail —')
 
   check('a winning roll still ends the turn in Jail', state.players[0].inJail, true)
   check('release is pending', state.players[0].jailReleasePending, true)
-  check('the turn is over', state.stage, 'awaitingEndTurn')
+  // The turn does NOT end on the last roll any more: the result is held so
+  // the number can actually be read. 2026-10-12.
+  check('the turn waits on the result', state.stage, 'inJail')
+  check('and the result is on the table', state.pendingJailResult?.total, 12)
+  check('saying they are out', state.pendingJailResult?.released, true)
+  state = gameReducer(state, { type: 'ACK_JAIL_RESULT' })
+  check('OK moves it on', state.stage, 'awaitingEndTurn')
+  check('and clears the result', state.pendingJailResult, null)
 
   // Play round to their next turn.
   state = gameReducer(state, { type: 'END_TURN' })
@@ -641,7 +649,9 @@ console.log('— Jail —')
   check('the fee is taken', before - state.players[0].cash, 500)
   check('still in Jail for the rest of this turn', state.players[0].inJail, true)
   check('release is pending', state.players[0].jailReleasePending, true)
+  // Paying rolls nothing, so there is no number to hold on screen.
   check('the turn is over', state.stage, 'awaitingEndTurn')
+  check('with nothing to read', state.pendingJailResult, null)
 
   state = gameReducer(state, { type: 'END_TURN' })
   state = gameReducer(state, { type: 'END_TURN' })
@@ -665,7 +675,19 @@ console.log('— Jail —')
 
   check('still jailed', state.players[0].inJail, true)
   check('no release pending', state.players[0].jailReleasePending, false)
-  check('the turn ends', state.stage, 'awaitingEndTurn')
+  check('the third number is held, not thrown away', state.stage, 'inJail')
+  check('and it is all three rolls', state.pendingJailResult?.rolls, [1, 1, 1])
+  check('totalled', state.pendingJailResult?.total, 3)
+  check('and it says they are staying', state.pendingJailResult?.released, false)
+
+  // Nothing else can happen while it is up — not even another roll.
+  const nudged = gameReducer(state, { type: 'JAIL_ROLL' })
+  check('a fourth roll is refused', nudged.players[0].jailRolls.length, 3)
+  const hurried = gameReducer(state, { type: 'END_TURN' })
+  check('and the turn cannot be ended round it', hurried.stage, 'inJail')
+
+  state = gameReducer(state, { type: 'ACK_JAIL_RESULT' })
+  check('the turn ends on OK', state.stage, 'awaitingEndTurn')
 
   state = gameReducer(state, { type: 'END_TURN' })
   state = gameReducer(state, { type: 'END_TURN' })
@@ -1752,7 +1774,7 @@ console.log('— Nobody buys what they cannot afford —')
 }
 
 // ===========================================================================
-console.log('— The other phones are told, without being shown the card —')
+console.log('— The other phones are told what happened, not shown the card —')
 // ===========================================================================
 
 {
@@ -1762,9 +1784,16 @@ console.log('— The other phones are told, without being shown the card —')
 
   buyProperty(state, a.id, 'egypt')
   const bought = state.notices[state.notices.length - 1]
-  check('a purchase is announced', bought.text, `${a.name} bought Egypt.`)
+  // His call, 2026-10-12: the table is told the PRICE as well. What stays
+  // private is the card itself — the rents, the building cost, the group.
+  check(
+    'a purchase is announced with its price',
+    bought.text,
+    `${a.name} bought Egypt for ${money(COUNTRIES.egypt.price)}.`,
+  )
   check('and attributed to the buyer', bought.playerId, a.id)
-  ok('with no price in it', !bought.text.includes('$'))
+  ok('the rents are not in it', !bought.text.includes(String(COUNTRIES.egypt.rent.site)))
+  ok('nor the building cost', !bought.text.includes(String(COUNTRIES.egypt.houseCost)))
 
   sendToJail(state, a.id)
   const jailed = state.notices[state.notices.length - 1]
@@ -1841,7 +1870,9 @@ console.log('— The other phones are told, without being shown the card —')
   state = gameReducer(state, { type: 'JAIL_ROLL' })
   Math.random = realRandom
 
-    state = gameReducer(state, { type: 'END_TURN' })
+  // The result is read first — the turn will not end over the top of it.
+  state = gameReducer(state, { type: 'ACK_JAIL_RESULT' })
+  state = gameReducer(state, { type: 'END_TURN' })
   state = gameReducer(state, { type: 'END_TURN' })
   ok('a failed attempt leaves them in Jail', state.players[0].inJail)
   check('and they are asked to choose again', state.stage, 'inJail')
@@ -1920,8 +1951,11 @@ console.log('— What a joined phone is allowed to do —')
   const [a] = state.players
   buyProperty(state, a.id, 'egypt')
   const last = state.notices[state.notices.length - 1]
-  check('a purchase is one line', last.text, `${a.name} bought Egypt.`)
-  ok('with no price in it', !last.text.includes('$'))
+  check(
+    'a purchase is one line',
+    last.text,
+    `${a.name} bought Egypt for ${money(COUNTRIES.egypt.price)}.`,
+  )
   ok('and nothing to dismiss', !('popups' in (state as unknown as Record<string, unknown>)))
 }
 

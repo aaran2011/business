@@ -15,7 +15,7 @@
 const HOTEL_LEVEL = 4
 
 import { BUILDING_LEVEL_LABELS, COUNTRIES } from '../data/properties'
-import { addLog, money } from './log'
+import { addLog, money, notify } from './log'
 import { credit, transferMoney } from './payments'
 import {
   buildingSellRefund,
@@ -98,6 +98,12 @@ export function buildOneStep(state: GameState, playerId: string, propertyId: str
     'build',
     `${getPlayer(state, playerId).name} built ${check.nextLabel} on ${def.name} for ${money(check.cost)}.`,
   )
+  notify(
+    state,
+    playerId,
+    `${getPlayer(state, playerId).name} built ${check.nextLabel} on ${def.name} for ${money(check.cost)}.`,
+    'neutral',
+  )
   return true
 }
 
@@ -165,6 +171,12 @@ export function sellBuilding(state: GameState, playerId: string, propertyId: str
     state,
     'build',
     `${getPlayer(state, playerId).name} sold down ${COUNTRIES[propertyId].name} from ${check.fromLabel} to ${check.toLabel} for ${money(check.refund)}.`,
+  )
+  notify(
+    state,
+    playerId,
+    `${getPlayer(state, playerId).name} sold a building on ${COUNTRIES[propertyId].name} for ${money(check.refund)}.`,
+    'neutral',
   )
   return true
 }

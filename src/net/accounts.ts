@@ -336,21 +336,52 @@ export async function probeAccounts(): Promise<'ready' | 'setup' | 'unreachable'
   return 'unreachable'
 }
 
-export function signUp(username: string, password: string, avatarId: string): Promise<AuthResult> {
+/**
+ * An EMPTY token is left out of the request entirely.
+ *
+ * PostgREST matches a function by the exact set of named arguments it is
+ * given. The functions in `accounts.sql` know nothing about `p_captcha`, so
+ * sending it to a project that has only run that script would match no
+ * function at all and report "accounts are not switched on" — breaking
+ * sign-in for everybody in the name of a captcha that is not even on.
+ */
+function withCaptcha(captcha: string): Record<string, string> {
+  return captcha ? { p_captcha: captcha } : {}
+}
+
+/**
+ * The reCAPTCHA token travels with the request as `p_captcha`.
+ *
+ * The database functions declare it with a default, so sending it is
+ * optional and an older client still works. Whether it is REQUIRED is the
+ * database's business, not this file's: `supabase/recaptcha.sql` decides,
+ * and until that script is run the argument is ignored entirely.
+ */
+export function signUp(
+  username: string,
+  password: string,
+  avatarId: string,
+  captcha = '',
+): Promise<AuthResult> {
   const problem = usernameProblem(username) ?? passwordProblem(password)
   if (problem) return Promise.resolve({ ok: false, error: problem })
   return call('business_signup', {
     p_username: username.trim(),
     p_password: password,
     p_avatar: avatarId,
+    ...withCaptcha(captcha),
   })
 }
 
-export function signIn(username: string, password: string): Promise<AuthResult> {
+export function signIn(username: string, password: string, captcha = ''): Promise<AuthResult> {
   if (!username.trim() || !password) {
     return Promise.resolve({ ok: false, error: 'Fill in both boxes.' })
   }
-  return call('business_login', { p_username: username.trim(), p_password: password })
+  return call('business_login', {
+    p_username: username.trim(),
+    p_password: password,
+    ...withCaptcha(captcha),
+  })
 }
 
 /** Change the character on an account. The password proves it is theirs. */

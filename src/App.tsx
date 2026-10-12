@@ -204,6 +204,31 @@ export default function App() {
   ])
 
   /**
+   * A finished Jail attempt stays up for a moment, then play moves on.
+   *
+   * Counted from when the last die STOPS, so the three seconds are three
+   * seconds of looking at the number rather than of watching it spin. The OK
+   * button does the same thing sooner, from whichever device plays that seat.
+   */
+  const jailResultFor = state.pendingJailResult?.playerId ?? null
+  useEffect(() => {
+    if (isGuest || !jailResultFor) return
+    if (state.phase !== 'playing' || state.paused) return
+    const wait = state.settings.dice.rollAnimationMs + state.settings.jail.resultHoldMs
+    const timer = window.setTimeout(() => dispatch({ type: 'ACK_JAIL_RESULT' }), wait)
+    return () => window.clearTimeout(timer)
+  }, [
+    isGuest,
+    jailResultFor,
+    state.rollSeq,
+    state.phase,
+    state.paused,
+    state.settings.dice.rollAnimationMs,
+    state.settings.jail.resultHoldMs,
+    dispatch,
+  ])
+
+  /**
    * The bidding clock belongs to the device running the game.
    *
    * Every device counts down for itself so the number on screen is right, but
@@ -473,7 +498,25 @@ export default function App() {
     )
   }
   if (state.phase === 'timeUp' || state.phase === 'gameOver' || state.phase === 'ended') {
-    return <ResultsScreen state={viewState} dispatch={act} />
+    return (
+      <ResultsScreen
+        state={viewState}
+        dispatch={act}
+        onHome={() => {
+          /*
+            "When you end the game then you should get on the homepage."
+            RESET alone only rewinds the GAME — this device was still holding
+            the play mode it chose last time, so it landed back in the lobby.
+            Clearing that is what actually returns to the front door, and a
+            hosted game is closed on the way out rather than left open on a
+            code nobody is using.
+          */
+          act({ type: 'RESET' })
+          setPlayMode(null)
+          if (session.role !== 'solo') session.leave()
+        }}
+      />
+    )
   }
 
   return (
@@ -710,7 +753,23 @@ function PlayingView({
             slots={state.settings.jail.escapeDieRolls}
             target={state.settings.jail.escapeTargetTotal}
           />
-          {!canAct && (
+          {/* The attempt is over. This is the moment the third number is
+              actually readable, so it stays until it is acknowledged. */}
+          {state.pendingJailResult && (
+            <div
+              className={`jail-result${state.pendingJailResult.released ? ' is-out' : ''}`}
+            >
+              <strong>
+                {state.pendingJailResult.rolls.join(' + ')} = {state.pendingJailResult.total}
+              </strong>
+              <span>
+                {state.pendingJailResult.released
+                  ? `Out of Jail — ${player.name} walks free next turn.`
+                  : `Short of ${state.settings.jail.escapeTargetTotal}. ${player.name} stays in Jail.`}
+              </span>
+            </div>
+          )}
+          {!canAct && !state.pendingJailResult && (
             <div className="jail-waiting">Waiting for {player.name} to choose.</div>
           )}
         </div>

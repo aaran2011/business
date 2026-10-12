@@ -63,7 +63,9 @@ export function ActionBar({
   const inDebt = owed > 0
   const busy = state.stage === 'moving' || state.paused
 
-  const inJail = state.stage === 'inJail' && !busy
+  // A finished attempt is not a chance to roll again — it is a result to read.
+  const jailResult = state.pendingJailResult
+  const inJail = state.stage === 'inJail' && !busy && !jailResult
   const purchase = state.stage === 'awaitingPurchase' ? state.pendingPurchase : null
   const buildOffer = state.stage === 'awaitingBuild' ? state.pendingBuild : null
   const buildCheck = buildOffer
@@ -73,6 +75,12 @@ export function ActionBar({
   // Money just came in and the card saying why is still open. Every other
   // question waits behind its OK, so nothing is answered before it is read.
   const awaitingOk = (state.moneyToAck ?? []).some((a) => a.playerId === player.id)
+
+  const jailResultButton = jailResult ? (
+    <button className="btn btn-primary" onClick={() => dispatch({ type: 'ACK_JAIL_RESULT' })}>
+      OK
+    </button>
+  ) : null
 
   // Jail is manual: nothing rolls for the player, they choose.
   const jailButtons = inJail ? (
@@ -160,6 +168,7 @@ export function ActionBar({
     if (awaitingOk) return null
     return (
       <>
+        {jailResultButton}
         {jailButtons}
         {purchaseButtons}
         {buildButtons}
@@ -172,6 +181,7 @@ export function ActionBar({
     <div className="actionbar">
       {!awaitingOk && (
         <>
+          {jailResultButton}
           {jailButtons}
           {purchaseButtons}
           {buildButtons}
@@ -238,6 +248,12 @@ export function hintFor(state: GameState): string {
         : ''
     case 'inJail': {
       const { payToEscape, escapeDieRolls, escapeTargetTotal } = state.settings.jail
+      const result = state.pendingJailResult
+      if (result) {
+        return result.released
+          ? `${result.rolls.join(' + ')} = ${result.total}. ${player.name} is out of Jail next turn.`
+          : `${result.rolls.join(' + ')} = ${result.total} — short of ${escapeTargetTotal}. ${player.name} stays in Jail.`
+      }
       return `${player.name} is in Jail. Roll one die ${escapeDieRolls} times and total ${escapeTargetTotal}+, or pay ${money(payToEscape)} — either way they get out on their next turn.`
     }
     case 'bidding':

@@ -12,9 +12,12 @@ import type { GameAction, GameState } from '../engine/types'
 export function ResultsScreen({
   state,
   dispatch,
+  onHome,
 }: {
   state: GameState
   dispatch: (action: GameAction) => void
+  /** Back to the front door: a new game, and the play mode asked again. */
+  onHome: () => void
 }) {
   const rows = leaderboard(state)
   const timedOut = state.phase === 'timeUp'
@@ -108,14 +111,14 @@ export function ResultsScreen({
             Resume Game
           </button>
         )}
-        <button className="btn btn-good btn-lg" onClick={() => dispatch({ type: 'RESET' })}>
+        <button className="btn btn-good btn-lg" onClick={onHome}>
           Good Game
         </button>
       </div>
       <p className="results-note">
         {timedOut
-          ? 'Resume Game carries on from exactly where you stopped, with the timer switched off. Good Game returns to the home screen.'
-          : 'Good Game returns to the home screen.'}
+          ? 'Resume Game carries on from exactly where you stopped, with the timer switched off. Good Game takes you back to the home screen.'
+          : 'Good Game takes you back to the home screen, where you can start another.'}
       </p>
     </div>
   )

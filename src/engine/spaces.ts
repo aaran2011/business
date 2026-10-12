@@ -198,10 +198,17 @@ export function buyPropertyAt(
     'property',
     `${player.name} purchased ${displayNameOf(propertyId)} for ${money(amount)}.`,
   )
-  // The other phones are told WHAT was bought, never for how much and never
-  // the card itself. That is the buyer's business. (An auction is the one
-  // exception, and it announces its own winning price — see closeAuction.)
-  notify(state, playerId, `${player.name} bought ${displayNameOf(propertyId)}.`)
+  /*
+    The other phones are told what was bought AND for how much — his call on
+    2026-10-12, reversing the old rule that the price was the buyer's business.
+    What they still never see is the CARD: the rents, the building costs and
+    the colour group stay with the owner.
+  */
+  notify(
+    state,
+    playerId,
+    `${player.name} bought ${displayNameOf(propertyId)} for ${money(amount)}.`,
+  )
   return true
 }
 
@@ -336,10 +343,15 @@ function applyCard(
     }
   }
 
+  /*
+    Name the deck, not just the card. "Alex lost $500 — Doctor's Fee" leaves
+    the table guessing where it came from; "UNO: Doctor's Fee" does not.
+  */
+  const from = `${deck === 'UNO' ? 'UNO' : 'Chance'}: ${card.title}`
   if (legs?.length) {
-    notifyTransfer(state, legs, card.title, playerId, (delta ?? 0) >= 0 ? 'good' : 'bad')
+    notifyTransfer(state, legs, from, playerId, (delta ?? 0) >= 0 ? 'good' : 'bad')
   } else {
-    notifyMoney(state, playerId, player.name, delta ?? 0, card.title)
+    notifyMoney(state, playerId, player.name, delta ?? 0, from)
   }
 }
 

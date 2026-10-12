@@ -71,6 +71,7 @@ export function createInitialState(settings: GameSettings = DEFAULT_SETTINGS): G
     pendingPurchase: null,
     pendingBuild: null,
     auction: null,
+    pendingJailResult: null,
     debts: {},
     orderRolls: [],
     orderContenders: [],
@@ -162,6 +163,11 @@ function apply(state: GameState, action: GameAction): void {
       return endTurn(state)
     case 'ACK_MONEY':
       state.moneyToAck = (state.moneyToAck ?? []).filter((a) => a.id !== action.id)
+      return
+    case 'ACK_JAIL_RESULT':
+      if (state.stage !== 'inJail' || !state.pendingJailResult) return
+      state.pendingJailResult = null
+      state.stage = 'awaitingEndTurn'
       return
     case 'UPDATE_SETTINGS':
       state.settings = action.settings
@@ -707,8 +713,25 @@ function declinePurchase(state: GameState): void {
  */
 function jailEscapeAttempt(state: GameState): void {
   if (state.stage !== 'inJail') return
-  const attempt = attemptJailEscape(state, currentPlayer(state).id)
-  if (attempt.finished) state.stage = 'awaitingEndTurn'
+  if (state.pendingJailResult) return
+  const player = currentPlayer(state)
+  const attempt = attemptJailEscape(state, player.id)
+  if (!attempt.finished) return
+
+  /*
+    The attempt is over, but the turn does NOT end here.
+
+    It used to, and the last die was still spinning when it did — so the third
+    number, the one that decides whether they get out, was never actually
+    seen. The result waits on screen until the player presses OK, or until the
+    hold runs out (see the effect in App). Only then does play move on.
+  */
+  state.pendingJailResult = {
+    playerId: player.id,
+    rolls: attempt.rolls,
+    total: attempt.total,
+    released: attempt.released,
+  }
 }
 
 function endTurn(state: GameState): void {
@@ -721,7 +744,11 @@ function endTurn(state: GameState): void {
     state.stage === 'awaitingBuild' ||
     // An auction belongs to the whole table, so it outlasts the turn that
     // opened it. Nothing moves on until the card is settled.
-    state.stage === 'bidding'
+    state.stage === 'bidding' ||
+    // A Jail result that has not been read is the whole point of holding the
+    // turn — ending it round the side would put the third number back out of
+    // reach, which is the thing being fixed.
+    state.pendingJailResult !== null
   ) {
     return
   }
@@ -749,6 +776,7 @@ function advanceToNextPlayer(state: GameState): void {
     state.pendingPurchase = null
     state.pendingBuild = null
     state.auction = null
+    state.pendingJailResult = null
     // A player who earned their release last turn walks free now. Anybody
     // still in gets a clean sheet of three rolls for this turn.
     openJailDoorIfEarned(state, candidate.id)

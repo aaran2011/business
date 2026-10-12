@@ -4,6 +4,11 @@
 -- Run this ONCE, in the Supabase dashboard: SQL Editor -> New query -> paste
 -- -> Run. It is safe to run again; nothing is dropped and nothing is lost.
 --
+-- ONE EXCEPTION: if `recaptcha.sql` has also been run, running this again
+-- puts back the versions of the two functions that know nothing about a
+-- captcha, leaving two of each. Run `recaptcha.sql` again afterwards to
+-- clear that up.
+--
 -- Why it is needed at all: until now the game used only Realtime Broadcast,
 -- which needs no tables, no SQL and no row-level security. Accounts with a
 -- password are the one thing that cannot work that way — a password has to be

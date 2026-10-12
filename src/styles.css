@@ -5626,3 +5626,62 @@ button:disabled {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   word-break: break-word;
 }
+
+/* The result of a Jail escape attempt, held on screen long enough to read.
+   The third roll used to vanish with the turn before anybody saw it. */
+.jail-result {
+  display: grid;
+  gap: 2px;
+  margin-top: 10px;
+  padding: 9px 12px;
+  border-radius: 11px;
+  text-align: center;
+  background: var(--bad-soft);
+  border: 1px solid #f6c6cd;
+}
+
+.jail-result strong {
+  font-size: 20px;
+  font-weight: 900;
+  font-variant-numeric: tabular-nums;
+  color: #a8243a;
+}
+
+.jail-result span {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: var(--text-dim);
+}
+
+.jail-result.is-out {
+  background: var(--good-soft);
+  border-color: #b7ebd4;
+}
+
+.jail-result.is-out strong {
+  color: #0a8a5c;
+}
+
+/* The "I'm not a robot" box. Centred, because Google's iframe is a fixed
+   304px and looks adrift against a full-width form. */
+.captcha-box {
+  display: flex;
+  justify-content: center;
+  min-height: 78px;
+}
+
+.captcha-failed {
+  padding: 8px 10px;
+  border-radius: 9px;
+  background: var(--input);
+  line-height: 1.45;
+}
+
+/* Below ~360px Google's own widget is wider than the screen, so it is scaled
+   to fit rather than allowed to push the page sideways. */
+@media (max-width: 360px) {
+  .captcha-box > div {
+    transform: scale(0.88);
+    transform-origin: center top;
+  }
+}

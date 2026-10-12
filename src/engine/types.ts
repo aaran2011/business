@@ -148,6 +148,22 @@ export interface Auction {
   remainingMs: number | null
 }
 
+/**
+ * A finished Jail escape attempt, waiting to be read.
+ *
+ * The three rolls happen one press at a time, and the LAST one used to be
+ * invisible: the attempt set the stage to `awaitingEndTurn` the instant it
+ * finished, and the turn ended half a second later while the die was still
+ * spinning. So the third number was gone before it arrived. The turn now
+ * holds here until it is acknowledged — by the player, or by the clock.
+ */
+export interface PendingJailResult {
+  playerId: string
+  rolls: number[]
+  total: number
+  released: boolean
+}
+
 /** An offer to build on a country the player landed on and already owns. */
 export interface PendingBuild {
   propertyId: string
@@ -283,6 +299,8 @@ export interface GameState {
   pendingBuild: PendingBuild | null
   /** BID MODE ONLY. The auction on the table, or null. */
   auction: Auction | null
+  /** A finished Jail attempt the player has not read yet. */
+  pendingJailResult: PendingJailResult | null
   /** Outstanding debts keyed by debtor id. Usually empty. */
   debts: Record<string, Debt>
 
@@ -410,5 +428,7 @@ export type GameAction =
   | { type: 'RESET' }
   /** "OK" on a money card. */
   | { type: 'ACK_MONEY'; id: number }
+  /** "OK" on the result of a Jail escape attempt, or its three seconds. */
+  | { type: 'ACK_JAIL_RESULT' }
   /** Wholesale replacement of the game with the host's copy. Network only. */
   | { type: 'NET_SYNC'; state: GameState }
