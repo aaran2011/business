@@ -7,7 +7,10 @@
  * from Google, no token and no change to anything — the game stays exactly as
  * it is, and in particular it still opens and plays with no internet.
  *
- * Why it needs two halves. The tick-box proves nothing on its own: the sign-in
+ * It guards CREATING AN ACCOUNT only — his decision, 2026-10-12. Signing in
+ * stays one tap, and is already bolted by the ten-wrong-guesses lockout.
+ *
+ * Why it needs two halves. The tick-box proves nothing on its own: the signup
  * function is a public URL and anybody can call it straight from a terminal
  * without ever loading this page. What makes it real is the database checking
  * the token with Google before it creates an account — `supabase/recaptcha.sql`

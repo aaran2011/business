@@ -350,38 +350,45 @@ function withCaptcha(captcha: string): Record<string, string> {
 }
 
 /**
- * The reCAPTCHA token travels with the request as `p_captcha`.
+ * Creating an account. The reCAPTCHA token rides along as `p_captcha`.
  *
- * The database functions declare it with a default, so sending it is
- * optional and an older client still works. Whether it is REQUIRED is the
- * database's business, not this file's: `supabase/recaptcha.sql` decides,
- * and until that script is run the argument is ignored entirely.
+ * If the database has not had `recaptcha.sql` run against it, the function
+ * that exists takes no token and PostgREST finds nothing to call. Rather than
+ * reporting that as "accounts are switched off" — which would stop anybody
+ * signing up over a captcha that is not even installed — the same request is
+ * sent again without the token. Nothing is weakened by that: a database with
+ * no captcha installed was never going to check one.
  */
-export function signUp(
+export async function signUp(
   username: string,
   password: string,
   avatarId: string,
   captcha = '',
 ): Promise<AuthResult> {
   const problem = usernameProblem(username) ?? passwordProblem(password)
-  if (problem) return Promise.resolve({ ok: false, error: problem })
-  return call('business_signup', {
+  if (problem) return { ok: false, error: problem }
+
+  const args = {
     p_username: username.trim(),
     p_password: password,
     p_avatar: avatarId,
-    ...withCaptcha(captcha),
-  })
+  }
+  const first = await call('business_signup', { ...args, ...withCaptcha(captcha) })
+  if (first.ok || !first.setupNeeded || !captcha) return first
+  return call('business_signup', args)
 }
 
-export function signIn(username: string, password: string, captcha = ''): Promise<AuthResult> {
+/**
+ * Signing in. NO captcha, by his decision on 2026-10-12 — the tick-box is on
+ * creating an account and nowhere else, and a password is already bolted by
+ * the ten-wrong-guesses lockout. `business_login` keeps the shape
+ * `accounts.sql` gave it.
+ */
+export function signIn(username: string, password: string): Promise<AuthResult> {
   if (!username.trim() || !password) {
     return Promise.resolve({ ok: false, error: 'Fill in both boxes.' })
   }
-  return call('business_login', {
-    p_username: username.trim(),
-    p_password: password,
-    ...withCaptcha(captcha),
-  })
+  return call('business_login', { p_username: username.trim(), p_password: password })
 }
 
 /** Change the character on an account. The password proves it is theirs. */

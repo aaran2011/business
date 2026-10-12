@@ -85,7 +85,7 @@ export function LoginScreen({ onSignedIn }: { onSignedIn: (profile: Profile) => 
       const result =
         tab === 'new'
           ? await signUp(username, password, avatarId, captchaToken)
-          : await signIn(username, password, captchaToken)
+          : await signIn(username, password)
       if (!result.ok) {
         setError(result.error)
         setDetail(result.detail ?? null)
@@ -114,7 +114,9 @@ export function LoginScreen({ onSignedIn }: { onSignedIn: (profile: Profile) => 
     door into the game. The database is still the thing that decides; this
     is only what the screen allows somebody to try.
   */
-  const ready = filledIn && (!captchaEnabled() || captchaBroken || captchaToken !== '')
+  // The tick-box only gates CREATING an account; signing in is one tap.
+  const needsCaptcha = tab === 'new' && captchaEnabled() && !captchaBroken
+  const ready = filledIn && (!needsCaptcha || captchaToken !== '')
 
   return (
     <div className="setup-shell">
@@ -236,7 +238,7 @@ export function LoginScreen({ onSignedIn }: { onSignedIn: (profile: Profile) => 
             </div>
           )}
 
-          {captchaEnabled() && (
+          {tab === 'new' && captchaEnabled() && (
             <CaptchaBox
               onToken={setCaptchaToken}
               onBroken={() => setCaptchaBroken(true)}
