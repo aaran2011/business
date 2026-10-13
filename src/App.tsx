@@ -48,6 +48,12 @@ import type { GameAction, GameState } from './engine/types'
 
 type Dispatch = (action: GameAction) => void
 
+/** Is the seat that is up right now played by the machine? */
+function currentIsComputer(state: GameState): boolean {
+  const id = state.turnOrder[state.currentIndex]
+  return state.players.some((p) => p.id === id && p.isComputer)
+}
+
 export default function App() {
   const session = useSession()
   const { state } = session
@@ -523,7 +529,18 @@ export default function App() {
     <PlayingView
       state={viewState}
       dispatch={act}
-      canAct={session.controlsPlayer(state.turnOrder[state.currentIndex])}
+      /*
+        A computer's turn is not yours to answer.
+
+        This device does run the computers' seats, so `controlsPlayer` says
+        yes for them — and that put the computer's own Buy / Don't buy / Jail
+        buttons in front of the player, who could press them on its behalf.
+        The machine answers for itself; the human watches, exactly as they
+        would watch another person.
+      */
+      canAct={
+        session.controlsPlayer(state.turnOrder[state.currentIndex]) && !currentIsComputer(state)
+      }
       isHost={session.isHost}
       controlsPlayer={session.controlsPlayer}
       session={session}

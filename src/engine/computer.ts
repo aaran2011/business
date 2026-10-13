@@ -25,6 +25,7 @@
  */
 
 import { COUNTRIES } from '../data/properties'
+import { SPECIAL_ASSETS } from '../data/specialAssets'
 import { minimumBid } from './auction'
 import { canBuild } from './building'
 import { orderRollTurn } from './game'
@@ -45,10 +46,33 @@ import type { GameAction, GameState } from './types'
  */
 const RESERVE = 2500
 
-/** How far above the printed price it will chase a country. */
-const CEILING_PLAIN = 1.0
-/** A third card of a colour doubles the site rent on the others. Worth more. */
-const CEILING_COMPLETES_GROUP = 1.3
+/*
+  WHAT A COMPUTER WILL PAY, as a multiple of the printed price.
+
+  This was 1.0 — the printed price, exactly — and that single number is why
+  the computers never bid at all. Pressing Buy opens the auction AT the
+  printed price, so the next legal bid is already $50 over the ceiling and
+  every computer folded before it had started. They only ever bid on a card
+  the player had skipped, and dropped out the moment anybody answered.
+
+  A real opponent pays over the odds for something it wants, so these go
+  above 1. The spread is fixed per card per player rather than random, which
+  matters twice: the same computer wants the same country by the same amount
+  every time it comes up, the way a person has preferences; and the harness
+  can replay a game and get the same auction.
+*/
+/** The least any computer will go to, over the printed price. */
+const WANT_FLOOR = 1.12
+/** How much further its own taste for a particular card can take it. */
+const WANT_SPREAD = 0.3
+/** A third card of a colour doubles the site rent on the others. */
+const WANT_COMPLETES_GROUP = 0.45
+/** Progress towards a group is worth something on its own. */
+const WANT_SAME_COLOUR = 0.14
+/** Owning both of a transport pair raises the rent on it. */
+const WANT_COMPLETES_PAIR = 0.22
+/** How often it pushes rather than nudging: a raise that is not the minimum. */
+const PUSH_ABOVE = 0.72
 
 /** Is this seat played by the machine? */
 export function isComputerSeat(state: GameState, playerId: string): boolean {
@@ -142,18 +166,74 @@ function bidAction(state: GameState, playerId: string): GameAction | null {
   const player = state.players.find((p) => p.id === playerId)
   if (!player || player.isOut) return null
 
-  const amount = minimumBid(state)
-  const ceiling = Math.round(
-    auction.price *
-      (completesGroup(state, playerId, auction.propertyId)
-        ? CEILING_COMPLETES_GROUP
-        : CEILING_PLAIN),
-  )
+  const ceiling = willingToPay(state, playerId, auction.propertyId)
+  const least = minimumBid(state)
+  if (least > ceiling) return null
 
-  if (amount > ceiling) return null
-  if (player.cash - amount < RESERVE) return null
+  /*
+    Not always the minimum. A player who only ever adds the smallest legal
+    amount reads as a machine grinding upwards; a real one sometimes puts in
+    a number meant to end it. Which auctions it pushes on is settled by the
+    same fixed taste, so it is consistent rather than twitchy.
+  */
+  const push = taste(`${auction.propertyId}:${playerId}:push`) > PUSH_ABOVE
+  const raise = state.settings.bidding.minRaise
+  const wanted = push ? least + raise * 4 : least
+  const amount = Math.min(wanted, ceiling)
+
+  // Never past what it holds. A group-completer may dip into the reserve —
+  // the same licence the purchase decision already takes.
+  const floor = completesGroup(state, playerId, auction.propertyId) ? 0 : RESERVE
+  if (player.cash - amount < floor) return null
+
   return { type: 'PLACE_BID', playerId, amount }
 }
+
+/**
+ * The most this player would go to for this card, in whole dollars.
+ *
+ * Capped by what they actually hold, so the number is always one they could
+ * pay; `bidAction` keeps the cash reserve on top of that.
+ */
+function willingToPay(state: GameState, playerId: string, propertyId: string): number {
+  const price = purchasePriceOf(propertyId)
+  let want = WANT_FLOOR + taste(`${propertyId}:${playerId}`) * WANT_SPREAD
+
+  const country = COUNTRIES[propertyId]
+  if (country) {
+    if (completesGroup(state, playerId, propertyId)) want += WANT_COMPLETES_GROUP
+    else if (countCountriesOwnedInColour(state, playerId, country.colour) > 0) {
+      want += WANT_SAME_COLOUR
+    }
+  } else {
+    const asset = SPECIAL_ASSETS[propertyId]
+    if (asset && state.holdings[asset.pairWith]?.ownerId === playerId) {
+      want += WANT_COMPLETES_PAIR
+    }
+  }
+
+  const player = state.players.find((p) => p.id === playerId)
+  return Math.min(Math.round(price * want), player?.cash ?? 0)
+}
+
+/**
+ * A settled 0–1 for a string — the same answer every time, on every device.
+ *
+ * `Math.random` would do the job for one game and ruin two other things: the
+ * host asks for this decision on every render while an auction is open, so a
+ * fresh number each time would make a computer change its mind mid-second;
+ * and the simulation could never replay a game. FNV-1a, which is small and
+ * spreads well enough for choosing a mood.
+ */
+function taste(seed: string): number {
+  let h = 2166136261
+  for (let i = 0; i < seed.length; i++) {
+    h ^= seed.charCodeAt(i)
+    h = Math.imul(h, 16777619)
+  }
+  return ((h >>> 0) % 10000) / 10000
+}
+
 
 /**
  * Raising money to settle a debt: mortgage the cheapest thing that will do,
@@ -196,8 +276,5 @@ export function computerCeilingFor(
   playerId: string,
   propertyId: string,
 ): number {
-  return Math.round(
-    purchasePriceOf(propertyId) *
-      (completesGroup(state, playerId, propertyId) ? CEILING_COMPLETES_GROUP : CEILING_PLAIN),
-  )
+  return willingToPay(state, playerId, propertyId)
 }

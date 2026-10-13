@@ -25,7 +25,7 @@ import {
   placeBid,
 } from '../src/engine/auction'
 import { buildOneStep, canBuild, sellBuilding } from '../src/engine/building'
-import { computerAction } from '../src/engine/computer'
+import { computerAction, computerCeilingFor } from '../src/engine/computer'
 import { diceTotal, rollDice } from '../src/engine/dice'
 import { createInitialState, gameReducer, makeGameCode, orderRollTurn } from '../src/engine/game'
 import { attemptJailEscape } from '../src/engine/jail'
@@ -2476,6 +2476,55 @@ function withComputers(humans = 1, computers = 2) {
 }
 
 {
+  /*
+    THE BUG HE HIT, 2026-10-13: "when I'm buying anything, the computer is
+    not bidding at all." Pressing Buy opens the auction AT the printed price,
+    and the computers' ceiling WAS the printed price — so the next legal bid
+    was already over it and nobody answered. This is that exact sequence.
+  */
+  const { state: start, mover } = biddingState(3)
+  let state = gameReducer(start, { type: 'BUY_PROPERTY' })
+  check('the player opens at the printed price', state.auction?.highBid, 1500)
+  const rivals = state.players.filter((p) => p.id !== mover)
+  for (const r of rivals) state.players.find((p) => p.id === r.id)!.isComputer = true
+
+  const answered = rivals
+    .map((r) => computerAction(state, r.id))
+    .filter((a): a is NonNullable<typeof a> => a !== null)
+  ok('a computer answers a Buy', answered.length > 0)
+  const bid = answered[0]
+  check('and it is a bid', bid.type, 'PLACE_BID')
+  ok('above the opening price', 'amount' in bid && bid.amount > 1500)
+  ok('and within its own cash', 'amount' in bid && bid.amount <= 25000)
+}
+
+{
+  // It does have a limit, and it is reached long before it ruins itself.
+  const { state: start } = biddingState(3)
+  let state = gameReducer(start, { type: 'DECLINE_PURCHASE' })
+  const bidder = state.players.find((p) => p.id !== state.auction!.landedBy)!
+  bidder.isComputer = true
+  // Malaysia is $1,500; nobody should chase it to three times that.
+  state.auction!.highBid = 4500
+  state.auction!.highBidderId = state.auction!.landedBy
+  ok('it folds when the price runs away', computerAction(state, bidder.id) === null)
+}
+
+{
+  // The same computer wants the same card by the same amount every time:
+  // the decision is settled, not rolled, or it would change mid-auction.
+  const { state: start } = biddingState(3)
+  const state = gameReducer(start, { type: 'DECLINE_PURCHASE' })
+  const who = state.players.find((p) => p.id !== state.auction!.landedBy)!
+  who.isComputer = true
+  const asked = [1, 2, 3].map(() => {
+    const a = computerAction(state, who.id)
+    return a && 'amount' in a ? a.amount : null
+  })
+  check('asked three times, it says the same thing', new Set(asked).size, 1)
+}
+
+{
   // Bidding: it bids the minimum and stops at its ceiling.
   const { state: start } = biddingState(3)
   let state = gameReducer(start, { type: 'DECLINE_PURCHASE' })
@@ -2484,11 +2533,18 @@ function withComputers(humans = 1, computers = 2) {
   const bid = computerAction(state, bidderId)
   check('a computer bids', bid?.type, 'PLACE_BID')
   check('the least it can', bid && 'amount' in bid ? bid.amount : null, 1500)
-  // Pushed past the printed price it walks away rather than chasing.
-  state = gameReducer(state, { type: 'PLACE_BID', playerId: state.auction!.landedBy, amount: 2000 })
-  state.auction!.highBid = 2200
+  /*
+    It goes OVER the printed price — that is the whole point — but has a
+    limit. Where exactly depends on its taste for that card, so the useful
+    thing to pin down is the floor and the far end, not a single number.
+  */
+  const ceiling = computerCeilingFor(state, bidderId, 'malaysia')
+  ok('it would pay more than the printed price', ceiling > COUNTRIES.malaysia.price)
+  ok('at least 12% more', ceiling >= Math.round(COUNTRIES.malaysia.price * 1.12))
+  ok('but nowhere near double', ceiling < COUNTRIES.malaysia.price * 2)
+  state.auction!.highBid = 5000
   state.auction!.highBidderId = state.auction!.landedBy
-  ok('it stops above the printed price', computerAction(state, bidderId) === null)
+  ok('so it folds at three times the price', computerAction(state, bidderId) === null)
   ok('and never bids against itself', computerAction(state, state.auction!.landedBy) === null)
 }
 
