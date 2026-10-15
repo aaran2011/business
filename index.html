@@ -7,13 +7,15 @@
     <link rel="apple-touch-icon" href="/favicon.svg" />
     <meta name="theme-color" content="#ff7a1a" />
     <!--
-      Said properly, because this is the only text a search engine gets
-      before it runs any JavaScript. Under about 160 characters, or Google
-      cuts it mid-sentence in the results.
+      Under about 160 characters, or Google cuts it mid-sentence.
+      EVERY CLAIM IN HERE IS CHECKED against src/data: 2-6 players,
+      $25,000 each, 20 countries, up to three houses, and no payment of any
+      kind anywhere in the codebase. Do not add a claim you have not read
+      out of the data.
     -->
     <meta
       name="description"
-      content="A board game for 2 to 6 players, free in your browser. Buy countries, build houses and bid at auction — play online with friends, or pass one device around."
+      content="Play Business online with 2 to 6 players. Challenge friends in a multiplayer board game — buy countries, build houses and charge rent. Free in your browser."
     />
     <!--
       The address this page should be indexed under. It is served from two
@@ -33,7 +35,64 @@
     <link rel="manifest" href="/manifest.webmanifest" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-    <title>Business — online board game for 2 to 6 players</title>
+    <title>Business Game Online – Play Free Multiplayer Board Game</title>
+
+    <!--
+      How the page looks when somebody shares the link. Google does not rank
+      on these, but a bare link in a chat is a worse advert than a titled
+      card, and people arrive at games through links from friends.
+
+      No og:image: there is no 1200x630 picture to point at, and naming a
+      file that does not exist is worse than leaving it out.
+    -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Business" />
+    <meta property="og:title" content="Business Game Online – Play Free Multiplayer Board Game" />
+    <meta
+      property="og:description"
+      content="Play Business online with 2 to 6 players. Buy countries, build houses and charge rent. Free in your browser."
+    />
+    <meta property="og:url" content="https://businesss-gilt.vercel.app/" />
+    <meta property="og:locale" content="en" />
+    <meta name="twitter:card" content="summary" />
+    <meta name="twitter:title" content="Business Game Online – Play Free Multiplayer Board Game" />
+    <meta
+      name="twitter:description"
+      content="Play Business online with 2 to 6 players. Buy countries, build houses and charge rent. Free in your browser."
+    />
+
+    <!--
+      Structured data: what this page IS, in a form a machine can read.
+
+      VideoGame, because it is a game that is played in software. Every field
+      is checked against src/data and src/engine. There are deliberately NO
+      ratings, no review counts, no download numbers, no awards and no price
+      — this game has never been rated or sold, and inventing any of that is
+      both a lie and a way to get structured data ignored entirely.
+    -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "VideoGame",
+        "name": "Business",
+        "alternateName": "Business Board Game",
+        "url": "https://businesss-gilt.vercel.app/",
+        "description": "A board game for 2 to 6 players, played in a web browser. Move around a board of 36 spaces, buy the countries you land on, build up to three houses on them and charge rent. Play online with friends, against the computer, or by passing one device around.",
+        "genre": ["Board game", "Strategy", "Multiplayer"],
+        "gamePlatform": "Web browser",
+        "applicationCategory": "GameApplication",
+        "operatingSystem": "Any device with a web browser",
+        "browserRequirements": "Requires JavaScript",
+        "inLanguage": "en",
+        "isAccessibleForFree": true,
+        "playMode": ["MultiPlayer", "SinglePlayer"],
+        "numberOfPlayers": {
+          "@type": "QuantitativeValue",
+          "minValue": 2,
+          "maxValue": 6
+        }
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>
@@ -52,11 +111,28 @@
     <noscript>
       <h1>Business — an online board game for 2 to 6 players</h1>
       <p>
-        Buy countries, build houses on them and charge rent. Play the classic
-        game, where landing on a country buys it at the printed price, or the
-        bidding game, where the whole table can bid for it. Play online with
-        friends on their own phones, against the computer, or by passing one
-        device around.
+        Business is a board game you play in your browser. Everyone starts
+        with $25,000 and moves around a board of 36 spaces, buying the
+        countries they land on, building up to three houses on them and
+        charging rent to whoever lands there next.
+      </p>
+      <h2>Three ways to play</h2>
+      <ul>
+        <li>
+          Online with friends: one person starts a game and shares a code,
+          and everybody else joins from their own phone or laptop.
+        </li>
+        <li>
+          Against the computer, which buys, builds, bids and goes to Jail on
+          exactly the same rules as you.
+        </li>
+        <li>Pass and play, with everybody round one device and no connection needed.</li>
+      </ul>
+      <h2>Classic or bidding</h2>
+      <p>
+        In the classic game, landing on a country nobody owns buys it at the
+        printed price. In the bidding game the whole table can bid for it,
+        and the highest bid takes the card.
       </p>
       <p>This game needs JavaScript. Please switch it on and reload the page.</p>
     </noscript>

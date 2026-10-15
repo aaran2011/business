@@ -278,7 +278,76 @@ export function LoginScreen({ onSignedIn }: { onSignedIn: (profile: Profile) => 
           </button>
         </div>
       </div>
+
+      <AboutTheGame />
     </div>
+  )
+}
+
+/**
+ * What this game is, on the page a stranger actually lands on.
+ *
+ * The sign-in screen IS the public homepage: somebody arriving from a search
+ * result sees this, not the front door behind it. Until now it was a form and
+ * nothing else — no word about what they would be signing up to. So this
+ * earns its place twice: a visitor can read what the game is before deciding
+ * to make an account, and a search engine gets some actual text on a page
+ * that was otherwise an empty React root.
+ *
+ * It is ordinary visible content, not a block hidden for crawlers. Every
+ * claim is checked against `src/data`: 2-6 players, $25,000 each, 36 spaces,
+ * up to three houses, three ways to play, two game types, and free because
+ * there is no payment anywhere in the codebase. Do not add a line here that
+ * cannot be read out of the data.
+ *
+ * It does NOT appear once somebody is signed in — the front door, the lobby
+ * and the board have no advertising on them.
+ */
+function AboutTheGame() {
+  return (
+    <section className="about" aria-labelledby="about-title">
+      <h2 id="about-title">An online board game for 2 to 6 players</h2>
+      <p>
+        Business is a board game you play in your browser, with no download and
+        nothing to pay. Everyone starts with $25,000 and moves around a board of
+        36 spaces, buying the countries they land on, building up to three
+        houses on them and charging rent to whoever lands there next. Land badly
+        and you will be paying somebody else instead — or sitting in Jail.
+      </p>
+
+      <h3>Three ways to play</h3>
+      <ul>
+        <li>
+          <strong>Online with friends.</strong> One person opens a game and
+          shares the code; everybody else joins from their own phone or laptop,
+          wherever they are.
+        </li>
+        <li>
+          <strong>Against the computer.</strong> It buys, builds, bids at
+          auction and gets itself out of Jail on exactly the same rules you do.
+        </li>
+        <li>
+          <strong>Pass and play.</strong> Everybody round one device, handing it
+          on. No code and no connection — this one works with no internet at
+          all.
+        </li>
+      </ul>
+
+      <h3>Classic or bidding</h3>
+      <p>
+        In the <strong>classic</strong> game, landing on a country nobody owns
+        buys it at the printed price, or it stays with the Bank. In the{' '}
+        <strong>bidding</strong> game the whole table gets a go: buy or skip,
+        either way the rest can bid, and the highest bid takes the card.
+      </p>
+
+      <h3>Getting started</h3>
+      <p>
+        Make an account above, pick a character, then choose how you want to
+        play. It works on a phone or a laptop, and your character follows you to
+        whichever one you sign in on.
+      </p>
+    </section>
   )
 }
 

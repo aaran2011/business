@@ -6105,3 +6105,65 @@ button:disabled {
     transform: none;
   }
 }
+
+/* ---------------------------------------------------- what the game is --
+   Visible content on the public page — the sign-in screen is what somebody
+   arriving from a search result actually sees, and it used to be a form with
+   no word about what they were signing up to. Ordinary page copy, readable
+   by anybody; nothing here is hidden for crawlers.
+*/
+
+.about {
+  width: min(560px, 100%);
+  margin: 26px auto 8px;
+  padding: 22px 24px 24px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.62);
+  border: 1px solid var(--line-soft);
+  box-shadow: var(--shadow-sm);
+  color: var(--text-dim);
+}
+
+.about h2 {
+  margin: 0 0 10px;
+  font-size: 19px;
+  font-weight: 800;
+  line-height: 1.3;
+  color: var(--text);
+}
+
+.about h3 {
+  margin: 20px 0 8px;
+  font-size: 14px;
+  font-weight: 800;
+  color: var(--text);
+}
+
+.about p {
+  margin: 0;
+  font-size: 13.5px;
+  font-weight: 500;
+  line-height: 1.65;
+}
+
+.about ul {
+  margin: 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 7px;
+  font-size: 13.5px;
+  font-weight: 500;
+  line-height: 1.6;
+}
+
+.about strong {
+  color: var(--text);
+  font-weight: 700;
+}
+
+@media (max-width: 600px) {
+  .about {
+    padding: 18px;
+    margin-top: 20px;
+  }
+}
