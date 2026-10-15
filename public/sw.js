@@ -22,7 +22,7 @@
 // activate handler deletes every cache that is not this one, so a stale
 // bundle — one still carrying the background music that was removed, say —
 // cannot survive an update.
-const CACHE = 'business-v12'
+const CACHE = 'business-v13'
 const SHELL = ['/', '/index.html', '/favicon.svg', '/manifest.webmanifest']
 
 self.addEventListener('install', (event) => {
@@ -62,8 +62,20 @@ self.addEventListener('fetch', (event) => {
     event.respondWith(
       fetch(request)
         .then((response) => {
-          const copy = response.clone()
-          caches.open(CACHE).then((cache) => cache.put('/index.html', copy))
+          /*
+           * Only the app's own HTML is kept as the offline shell.
+           *
+           * Typing /sitemap.xml or /robots.txt into the address bar is a
+           * NAVIGATION too, and this used to store whatever came back under
+           * '/index.html' — so one visit to the sitemap would leave the
+           * offline game opening as a page of XML. Checking the content type
+           * keeps the shell the shell.
+           */
+          const type = response.headers.get('content-type') || ''
+          if (response.ok && type.includes('text/html')) {
+            const copy = response.clone()
+            caches.open(CACHE).then((cache) => cache.put('/index.html', copy))
+          }
           return response
         })
         .catch(() => caches.match('/index.html').then((hit) => hit || caches.match('/'))),

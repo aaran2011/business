@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Business — sitemap.
+
+  ONE URL, and that is not an oversight. The game has no router and no path
+  handling of any kind: signing in, the front door, the lobby and the board
+  are all states of the same page. So there is no second address to list, and
+  nothing here was invented to pad it out.
+
+  Nothing private appears for the same reason. Accounts, game sessions and
+  anybody's holdings are not reachable at a URL — they are state behind a
+  sign-in, or rows a publishable key cannot read. There is no page to exclude.
+
+  Update `lastmod` when the page changes in a way a search engine should care
+  about. It is a hint, not a promise, and a date that never moves is worth
+  less than no date at all.
+-->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://businesss-gilt.vercel.app/</loc>
+    <lastmod>2026-10-15</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>1.0</priority>
+  </url>
+</urlset>

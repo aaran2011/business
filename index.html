@@ -6,7 +6,21 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="apple-touch-icon" href="/favicon.svg" />
     <meta name="theme-color" content="#ff7a1a" />
-    <meta name="description" content="Business — a board game for 2 to 6 players." />
+    <!--
+      Said properly, because this is the only text a search engine gets
+      before it runs any JavaScript. Under about 160 characters, or Google
+      cuts it mid-sentence in the results.
+    -->
+    <meta
+      name="description"
+      content="A board game for 2 to 6 players, free in your browser. Buy countries, build houses and bid at auction — play online with friends, or pass one device around."
+    />
+    <!--
+      The address this page should be indexed under. It is served from two
+      Vercel domains, and without this Google picks one of them itself and
+      may split the page's standing across both.
+    -->
+    <link rel="canonical" href="https://businesss-gilt.vercel.app/" />
     <!--
       Google Search Console ownership, for businesss-gilt.vercel.app and
       business-chi-eight.vercel.app, which are two domains on one deployment.
@@ -19,10 +33,33 @@
     <link rel="manifest" href="/manifest.webmanifest" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-    <title>Business</title>
+    <title>Business — online board game for 2 to 6 players</title>
   </head>
   <body>
     <div id="root"></div>
+    <!--
+      What the page says before the app has run.
+
+      The game is a single React root, so the HTML a crawler is handed is an
+      empty div. Google does execute JavaScript, but it is not obliged to and
+      it is not quick about it, so there is a plain description here for
+      anything that reads the source and stops. It is also what somebody with
+      JavaScript switched off would otherwise see instead of a blank page.
+
+      Invisible to every normal visitor: a browser running the app never
+      renders the contents of a noscript element.
+    -->
+    <noscript>
+      <h1>Business — an online board game for 2 to 6 players</h1>
+      <p>
+        Buy countries, build houses on them and charge rent. Play the classic
+        game, where landing on a country buys it at the printed price, or the
+        bidding game, where the whole table can bid for it. Play online with
+        friends on their own phones, against the computer, or by passing one
+        device around.
+      </p>
+      <p>This game needs JavaScript. Please switch it on and reload the page.</p>
+    </noscript>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

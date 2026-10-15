@@ -1,0 +1,15 @@
+# Business — a board game for 2 to 6 players.
+#
+# Everything is welcome, because there is only one page and nothing private
+# lives at a URL. Accounts, games in progress and anybody's money are state
+# behind a sign-in, not addresses a crawler could reach.
+#
+# This file is NOT a lock. Anything that must stay private is kept out by the
+# sign-in and by row-level security in the database, and that is where it
+# stays — a Disallow line is a request to well-behaved robots and nothing
+# more, so nothing here is relied on for safety.
+
+User-agent: *
+Allow: /
+
+Sitemap: https://businesss-gilt.vercel.app/sitemap.xml
