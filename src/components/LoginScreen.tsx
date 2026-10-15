@@ -44,6 +44,18 @@ export function LoginScreen({ onSignedIn }: { onSignedIn: (profile: Profile) => 
   const chosen = avatarById(avatarId)
 
   /*
+    Somebody who has just read what the game is needs a way back up to the
+    form without hunting for it. Focusing the field, not only scrolling to
+    it, means the next thing they do is type.
+  */
+  const focusSignUp = () => {
+    setTab('new')
+    const box = document.getElementById('login-user')
+    box?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    window.setTimeout(() => box?.focus(), 420)
+  }
+
+  /*
     Ask the server, once, while they are picking a character.
 
     It does two jobs. If the database side is missing it says so NOW, rather
@@ -119,13 +131,18 @@ export function LoginScreen({ onSignedIn }: { onSignedIn: (profile: Profile) => 
   const ready = filledIn && (!needsCaptcha || captchaToken !== '')
 
   return (
-    <div className="setup-shell">
+    /*
+      A landmark, not a bare div: this IS the public page, and a screen
+      reader should be able to jump to it. Styling is on the class, so the
+      element can change without touching a single rule.
+    */
+    <main className="setup-shell">
       <div className="setup-hero">
         <h1>Business</h1>
         <p>
           {tab === 'in'
             ? 'Sign in and your character comes with you.'
-            : 'Pick a character, choose a name, and you are in.'}
+            : 'Free, in your browser. Pick a character, choose a name, and you are in.'}
         </p>
       </div>
 
@@ -279,8 +296,8 @@ export function LoginScreen({ onSignedIn }: { onSignedIn: (profile: Profile) => 
         </div>
       </div>
 
-      <AboutTheGame />
-    </div>
+      <AboutTheGame onPlay={focusSignUp} />
+    </main>
   )
 }
 
@@ -303,7 +320,7 @@ export function LoginScreen({ onSignedIn }: { onSignedIn: (profile: Profile) => 
  * It does NOT appear once somebody is signed in — the front door, the lobby
  * and the board have no advertising on them.
  */
-function AboutTheGame() {
+function AboutTheGame({ onPlay }: { onPlay: () => void }) {
   return (
     <section className="about" aria-labelledby="about-title">
       <h2 id="about-title">An online board game for 2 to 6 players</h2>
@@ -343,10 +360,18 @@ function AboutTheGame() {
 
       <h3>Getting started</h3>
       <p>
-        Make an account above, pick a character, then choose how you want to
-        play. It works on a phone or a laptop, and your character follows you to
+        Make an account, pick a character, then choose how you want to play. It
+        works on a phone or a laptop, and your character follows you to
         whichever one you sign in on.
       </p>
+      {/*
+        One call to action, and an honest one. It says free because the game
+        is free, and it says what actually happens next — an account — rather
+        than implying the board opens on the next tap.
+      */}
+      <button type="button" className="btn btn-primary about-cta" onClick={onPlay}>
+        Play free — it takes about 20 seconds
+      </button>
     </section>
   )
 }

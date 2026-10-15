@@ -6167,3 +6167,13 @@ button:disabled {
     margin-top: 20px;
   }
 }
+
+/* The one call to action on the public page, at the end of the explanation:
+   by then somebody knows what the game is, and the form is back up the page. */
+.about-cta {
+  margin-top: 18px;
+  width: 100%;
+  justify-content: center;
+  padding: 13px 18px;
+  font-size: 14.5px;
+}
